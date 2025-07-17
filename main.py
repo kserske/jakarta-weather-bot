@@ -14,6 +14,21 @@ AQICN_API_KEY = os.getenv('AQICN_API_KEY')
 JAKARTA_AQI_URL = f"https://api.waqi.info/feed/jakarta/?token={AQICN_API_KEY}"
 SINGAPORE_AQI_URL = f"https://api.waqi.info/feed/singapore/?token={AQICN_API_KEY}"
 
+async def set_bot_commands(application):
+    """Set the bot commands menu that appears when users type /"""
+    commands = [
+        BotCommand("start", "Welcome message and bot introduction"),
+        BotCommand("weather", "Get Jakarta weather and Singapore PSI"),
+        BotCommand("help", "Show help and usage instructions"),
+        BotCommand("about", "About this bot and data sources"),
+    ]
+    
+    try:
+        await application.bot.set_my_commands(commands)
+        print("Bot commands menu set successfully!")
+    except Exception as e:
+        print(f"Error setting bot commands: {e}")
+
 def get_aqi_level(aqi_value):
     """Convert AQI number to descriptive level"""
     if aqi_value <= 50:
@@ -52,17 +67,7 @@ def fetch_weather_data():
         print(f"Error fetching data: {e}")
         return None
 
-async def set_bot_commands(application):
-    """Set the bot commands menu that appears when users type /"""
-    commands = [
-        BotCommand("start", "Welcome message and bot introduction"),
-        BotCommand("weather", "Get Jakarta weather and Singapore PSI"),
-        BotCommand("help", "Show help and usage instructions"),
-        BotCommand("about", "About this bot and data sources"),
-    ]
-    
-    await application.bot.set_my_commands(commands)
-    print("Bot commands menu set successfully!")
+def format_weather_message(data):
     """Format the weather data into a readable message"""
     if not data:
         return "❌ Sorry, I couldn't fetch the weather data right now. Please try again later."
