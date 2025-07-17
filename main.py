@@ -182,6 +182,10 @@ Need more help? Just ask! 😊
 """
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
+async def post_init(application):
+    """Initialize bot commands after the application starts."""
+    await set_bot_commands(application)
+
 def main():
     """Start the bot."""
     if not TELEGRAM_BOT_TOKEN:
@@ -195,21 +199,13 @@ def main():
     print("Starting Jakarta Weather Bot...")
     
     # Create the Application
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
     
     # Register command handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("weather", weather))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("about", about_command))
-    
-    # Set up bot commands menu
-    async def setup_bot():
-        await set_bot_commands(application)
-    
-    # Run setup
-    import asyncio
-    asyncio.create_task(setup_bot())
     
     # Start the bot
     print("Bot is running with command menu enabled...")
