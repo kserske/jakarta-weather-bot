@@ -91,7 +91,7 @@ def format_weather_message(data):
 {weather_info}
 
 🇸🇬 **Singapore Air Quality (PSI)**
-🌬️ AQI: {singapore_aqi} - {singapore_level}
+🌬️ PSI: {singapore_aqi} - {singapore_level}
 
 📊 **AQI Scale:**
 • 0-50: Good 🟢
