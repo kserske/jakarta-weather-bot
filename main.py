@@ -1,7 +1,7 @@
 import os
 import requests
 import asyncio
-from telegram import Update
+from telegram import Update, BotCommand
 from telegram.ext import Application, CommandHandler, ContextTypes
 import json
 from datetime import datetime
@@ -52,7 +52,17 @@ def fetch_weather_data():
         print(f"Error fetching data: {e}")
         return None
 
-def format_weather_message(data):
+async def set_bot_commands(application):
+    """Set the bot commands menu that appears when users type /"""
+    commands = [
+        BotCommand("start", "Welcome message and bot introduction"),
+        BotCommand("weather", "Get Jakarta weather and Singapore PSI"),
+        BotCommand("help", "Show help and usage instructions"),
+        BotCommand("about", "About this bot and data sources"),
+    ]
+    
+    await application.bot.set_my_commands(commands)
+    print("Bot commands menu set successfully!")
     """Format the weather data into a readable message"""
     if not data:
         return "❌ Sorry, I couldn't fetch the weather data right now. Please try again later."
@@ -108,20 +118,23 @@ def format_weather_message(data):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
     welcome_message = """
-🌤️ Welcome to Jakarta Weather Bot!
+🌤️ **Welcome to Jakarta Weather Bot!**
 
 I can provide you with:
 • Jakarta's current weather conditions
 • Jakarta's air quality index (AQI)
 • Singapore's PSI index for comparison
 
-Commands:
-/weather - Get current weather and air quality
-/help - Show this help message
+**Quick Commands:**
+• `/weather` - Get current weather & air quality
+• `/help` - Detailed help information
+• `/about` - About this bot
 
-Just type /weather to get started!
+💡 **Tip:** Type `/` to see all available commands!
+
+Ready to check the weather? Try `/weather` now!
 """
-    await update.message.reply_text(welcome_message)
+    await update.message.reply_text(welcome_message, parse_mode='Markdown')
 
 async def weather(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send weather information when /weather command is used."""
@@ -137,17 +150,35 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = """
 🌤️ **Jakarta Weather Bot Help**
 
-**Commands:**
-• `/start` - Welcome message
+**Available Commands:**
+• `/start` - Welcome message and introduction
 • `/weather` - Get current Jakarta weather & Singapore PSI
-• `/help` - Show this help message
+• `/help` - Show this detailed help message
+• `/about` - Information about this bot
 
-**About:**
-This bot fetches real-time weather data for Jakarta and air quality information for both Jakarta and Singapore using the AQICN API.
+**How to Use:**
+1. Type `/` to see all available commands
+2. Click on any command or type it manually
+3. The bot will respond with the requested information
 
-**Data Sources:**
-• Weather data: AQICN (World Air Quality Index)
-• Updates: Real-time data
+**Weather Information Includes:**
+• 🌡️ Temperature
+• 💧 Humidity
+• 🌊 Atmospheric pressure
+• 💨 Wind speed
+• 🌬️ Air Quality Index (AQI)
+
+**Air Quality Scale:**
+• 0-50: Good 🟢
+• 51-100: Moderate 🟡
+• 101-150: Unhealthy for Sensitive Groups 🟠
+• 151-200: Unhealthy 🔴
+• 201-300: Very Unhealthy 🟣
+• 301+: Hazardous 🔴
+
+**Data Updates:** Real-time data fetched on each request
+
+Need more help? Just ask! 😊
 """
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
@@ -170,9 +201,18 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("weather", weather))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("about", about_command))
+    
+    # Set up bot commands menu
+    async def setup_bot():
+        await set_bot_commands(application)
+    
+    # Run setup
+    import asyncio
+    asyncio.create_task(setup_bot())
     
     # Start the bot
-    print("Bot is running...")
+    print("Bot is running with command menu enabled...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
