@@ -138,6 +138,7 @@ I can provide you with:
 💡 **Tip:** Type `/` to see all available commands!
 
 Ready to check the weather? Try `/weather` now!
+Created by Gilson Chin
 """
     await update.message.reply_text(welcome_message, parse_mode='Markdown')
 
@@ -193,7 +194,7 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🤖 **About Jakarta Weather Bot**
 
 **Version:** 1.0
-**Created:** 2025
+**Created:** 2025 by Gilson Chin
 
 **Features:**
 • Real-time Jakarta weather data
