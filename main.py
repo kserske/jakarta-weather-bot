@@ -182,6 +182,31 @@ Need more help? Just ask! 😊
 """
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
+async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send information about the bot."""
+    about_text = """
+🤖 **About Jakarta Weather Bot**
+
+**Version:** 1.0
+**Created:** 2025
+
+**Features:**
+• Real-time Jakarta weather data
+• Jakarta air quality index (AQI)
+• Singapore PSI index comparison
+• Easy-to-understand air quality levels
+
+**Data Sources:**
+• AQICN (World Air Quality Index Project)
+• Updates every request with fresh data
+
+**Developer:** Built with Python & python-telegram-bot
+**Hosting:** Railway Cloud Platform
+
+**Privacy:** This bot doesn't store any personal data
+"""
+    await update.message.reply_text(about_text, parse_mode='Markdown')
+
 async def post_init(application):
     """Initialize bot commands after the application starts."""
     await set_bot_commands(application)
