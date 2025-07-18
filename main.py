@@ -9,16 +9,18 @@ from datetime import datetime
 # Configuration
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 AQICN_API_KEY = os.getenv('AQICN_API_KEY')
+OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')  # Add this for weather data
 
-# AQICN API endpoints
+# API endpoints
 JAKARTA_AQI_URL = f"https://api.waqi.info/feed/jakarta/?token={AQICN_API_KEY}"
-SINGAPORE_AQI_URL = f"https://api.waqi.info/feed/singapore/?token={AQICN_API_KEY}"
+JAKARTA_WEATHER_URL = f"https://api.openweathermap.org/data/2.5/weather?q=Jakarta,ID&appid={OPENWEATHER_API_KEY}&units=metric"
 
 async def set_bot_commands(application):
     """Set the bot commands menu that appears when users type /"""
     commands = [
         BotCommand("start", "Welcome message and bot introduction"),
-        BotCommand("weather", "Get Jakarta weather and Singapore PSI"),
+        BotCommand("weather", "Get Jakarta weather and air quality"),
+        BotCommand("rain", "Get Jakarta rain forecast"),
         BotCommand("help", "Show help and usage instructions"),
         BotCommand("about", "About this bot and data sources"),
     ]
@@ -44,27 +46,62 @@ def get_aqi_level(aqi_value):
     else:
         return "Hazardous 🔴"
 
+def get_weather_condition_emoji(condition):
+    """Get emoji for weather condition"""
+    condition_lower = condition.lower()
+    if 'clear' in condition_lower:
+        return '☀️'
+    elif 'cloud' in condition_lower:
+        return '☁️'
+    elif 'rain' in condition_lower or 'drizzle' in condition_lower:
+        return '🌧️'
+    elif 'thunder' in condition_lower or 'storm' in condition_lower:
+        return '⛈️'
+    elif 'snow' in condition_lower:
+        return '❄️'
+    elif 'mist' in condition_lower or 'fog' in condition_lower:
+        return '🌫️'
+    else:
+        return '🌤️'
+
 def fetch_weather_data():
-    """Fetch weather and air quality data from AQICN"""
+    """Fetch weather and air quality data"""
     try:
-        # Get Jakarta data
-        jakarta_response = requests.get(JAKARTA_AQI_URL, timeout=10)
-        jakarta_data = jakarta_response.json()
+        # Get Jakarta AQI data
+        jakarta_aqi_response = requests.get(JAKARTA_AQI_URL, timeout=10)
+        jakarta_aqi_data = jakarta_aqi_response.json()
         
-        # Get Singapore data
-        singapore_response = requests.get(SINGAPORE_AQI_URL, timeout=10)
-        singapore_data = singapore_response.json()
+        # Get Jakarta weather data from OpenWeather
+        jakarta_weather_response = requests.get(JAKARTA_WEATHER_URL, timeout=10)
+        jakarta_weather_data = jakarta_weather_response.json()
         
-        if jakarta_data['status'] != 'ok' or singapore_data['status'] != 'ok':
+        if jakarta_aqi_data['status'] != 'ok':
             return None
             
         return {
-            'jakarta': jakarta_data['data'],
-            'singapore': singapore_data['data']
+            'aqi': jakarta_aqi_data['data'],
+            'weather': jakarta_weather_data
         }
         
     except Exception as e:
         print(f"Error fetching data: {e}")
+        return None
+
+def fetch_rain_forecast():
+    """Fetch rain forecast data for Jakarta"""
+    try:
+        # Use OpenWeather 5-day forecast API
+        forecast_url = f"https://api.openweathermap.org/data/2.5/forecast?q=Jakarta,ID&appid={OPENWEATHER_API_KEY}&units=metric"
+        response = requests.get(forecast_url, timeout=10)
+        forecast_data = response.json()
+        
+        if response.status_code == 200:
+            return forecast_data
+        else:
+            return None
+            
+    except Exception as e:
+        print(f"Error fetching rain forecast: {e}")
         return None
 
 def format_weather_message(data):
@@ -72,41 +109,52 @@ def format_weather_message(data):
     if not data:
         return "❌ Sorry, I couldn't fetch the weather data right now. Please try again later."
     
-    jakarta_data = data['jakarta']
-    singapore_data = data['singapore']
+    aqi_data = data['aqi']
+    weather_data = data['weather']
     
-    # Jakarta information
-    jakarta_aqi = jakarta_data.get('aqi', 'N/A')
+    # AQI information
+    jakarta_aqi = aqi_data.get('aqi', 'N/A')
     jakarta_level = get_aqi_level(jakarta_aqi) if jakarta_aqi != 'N/A' else 'N/A'
     
-    # Singapore information
-    singapore_aqi = singapore_data.get('aqi', 'N/A')
-    singapore_level = get_aqi_level(singapore_aqi) if singapore_aqi != 'N/A' else 'N/A'
+    # Weather information from OpenWeather
+    temp = weather_data['main']['temp']
+    feels_like = weather_data['main']['feels_like']
+    humidity = weather_data['main']['humidity']
+    pressure = weather_data['main']['pressure']
+    weather_desc = weather_data['weather'][0]['description'].title()
+    weather_emoji = get_weather_condition_emoji(weather_desc)
+    wind_speed = weather_data['wind']['speed']
     
-    # Weather details for Jakarta
-    weather_info = ""
-    if 'iaqi' in jakarta_data:
-        iaqi = jakarta_data['iaqi']
-        if 't' in iaqi:  # Temperature
-            weather_info += f"🌡️ Temperature: {iaqi['t']['v']}°C\n"
-        if 'h' in iaqi:  # Humidity
-            weather_info += f"💧 Humidity: {iaqi['h']['v']}%\n"
-        if 'p' in iaqi:  # Pressure
-            weather_info += f"🌊 Pressure: {iaqi['p']['v']} hPa\n"
-        if 'w' in iaqi:  # Wind
-            weather_info += f"💨 Wind: {iaqi['w']['v']} m/s\n"
+    # Rain information
+    rain_info = ""
+    if 'rain' in weather_data:
+        if '1h' in weather_data['rain']:
+            rain_info = f"🌧️ Rain (1h): {weather_data['rain']['1h']} mm\n"
+        elif '3h' in weather_data['rain']:
+            rain_info = f"🌧️ Rain (3h): {weather_data['rain']['3h']} mm\n"
+    
+    # Additional weather details from AQICN if available
+    additional_info = ""
+    if 'iaqi' in aqi_data:
+        iaqi = aqi_data['iaqi']
+        if 'w' in iaqi:  # Wind from AQICN
+            additional_info += f"💨 Wind (AQICN): {iaqi['w']['v']} m/s\n"
     
     # Format the message
     message = f"""
-🌤️ **Weather Report**
+🌤️ **Jakarta Weather Report**
 📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}
 
-🏙️ **Jakarta Weather & Air Quality**
-🌬️ AQI: {jakarta_aqi} - {jakarta_level}
-{weather_info}
+{weather_emoji} **Current Weather**
+🌡️ Temperature: {temp}°C (feels like {feels_like}°C)
+💧 Humidity: {humidity}%
+🌊 Pressure: {pressure} hPa
+💨 Wind Speed: {wind_speed} m/s
+☁️ Conditions: {weather_desc}
+{rain_info}
 
-🇸🇬 **Singapore Air Quality (PSI)**
-🌬️ PSI: {singapore_aqi} - {singapore_level}
+🌬️ **Air Quality**
+AQI: {jakarta_aqi} - {jakarta_level}
 
 📊 **AQI Scale:**
 • 0-50: Good 🟢
@@ -116,8 +164,50 @@ def format_weather_message(data):
 • 201-300: Very Unhealthy 🟣
 • 301+: Hazardous 🔴
 
-💡 Data provided by AQICN
+💡 Data from OpenWeather & AQICN
 """
+    return message
+
+def format_rain_forecast_message(forecast_data):
+    """Format rain forecast data into a readable message"""
+    if not forecast_data:
+        return "❌ Sorry, I couldn't fetch the rain forecast right now. Please try again later."
+    
+    message = f"""
+🌧️ **Jakarta Rain Forecast**
+📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+"""
+    
+    rain_periods = []
+    for item in forecast_data['list'][:8]:  # Next 24 hours (8 x 3-hour periods)
+        dt = datetime.fromtimestamp(item['dt'])
+        weather_desc = item['weather'][0]['description']
+        
+        rain_amount = 0
+        if 'rain' in item:
+            rain_amount = item['rain'].get('3h', 0)
+        
+        if 'rain' in weather_desc.lower() or rain_amount > 0:
+            rain_periods.append({
+                'time': dt.strftime('%H:%M'),
+                'date': dt.strftime('%m-%d'),
+                'description': weather_desc.title(),
+                'amount': rain_amount
+            })
+    
+    if rain_periods:
+        message += "🌧️ **Expected Rain Periods:**\n"
+        for period in rain_periods:
+            message += f"• {period['date']} {period['time']}: {period['description']}"
+            if period['amount'] > 0:
+                message += f" ({period['amount']} mm)"
+            message += "\n"
+    else:
+        message += "☀️ **Good News!** No rain expected in the next 24 hours.\n"
+    
+    message += "\n💡 Data from OpenWeather"
+    
     return message
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -128,10 +218,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 I can provide you with:
 • Jakarta's current weather conditions
 • Jakarta's air quality index (AQI)
-• Singapore's PSI index for comparison
+• Real-time rain forecast for Jakarta
 
 **Quick Commands:**
 • `/weather` - Get current weather & air quality
+• `/rain` - Get rain forecast for next 24 hours
 • `/help` - Detailed help information
 • `/about` - About this bot
 
@@ -151,6 +242,15 @@ async def weather(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(message, parse_mode='Markdown')
 
+async def rain_forecast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send rain forecast when /rain command is used."""
+    await update.message.reply_text("🔄 Fetching rain forecast...")
+    
+    forecast_data = fetch_rain_forecast()
+    message = format_rain_forecast_message(forecast_data)
+    
+    await update.message.reply_text(message, parse_mode='Markdown')
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send help message when /help command is used."""
     help_text = """
@@ -158,7 +258,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 **Available Commands:**
 • `/start` - Welcome message and introduction
-• `/weather` - Get current Jakarta weather & Singapore PSI
+• `/weather` - Get current Jakarta weather & air quality
+• `/rain` - Get Jakarta rain forecast (next 24 hours)
 • `/help` - Show this detailed help message
 • `/about` - Information about this bot
 
@@ -168,11 +269,18 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 3. The bot will respond with the requested information
 
 **Weather Information Includes:**
-• 🌡️ Temperature
+• 🌡️ Temperature & feels-like temperature
 • 💧 Humidity
 • 🌊 Atmospheric pressure
 • 💨 Wind speed
+• ☁️ Weather conditions
+• 🌧️ Current rain data
 • 🌬️ Air Quality Index (AQI)
+
+**Rain Forecast:**
+• Next 24 hours rain prediction
+• Rain intensity and timing
+• Weather conditions during rain periods
 
 **Air Quality Scale:**
 • 0-50: Good 🟢
@@ -193,18 +301,24 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     about_text = """
 🤖 **About Jakarta Weather Bot**
 
-**Version:** 1.0
+**Version:** 2.0
 **Created:** 2025 by Gilson Chin
 
 **Features:**
 • Real-time Jakarta weather data
 • Jakarta air quality index (AQI)
-• Singapore PSI index comparison
-• Easy-to-understand air quality levels
+• Rain forecast for next 24 hours
+• Easy-to-understand weather conditions
 
 **Data Sources:**
+• OpenWeather API (Weather & Rain data)
 • AQICN (World Air Quality Index Project)
 • Updates every request with fresh data
+
+**New Features:**
+• Rain forecast with timing
+• More detailed weather information
+• Real-time rain detection
 
 **Developer:** Built with Python & python-telegram-bot
 **Hosting:** Railway Cloud Platform
@@ -227,6 +341,11 @@ def main():
         print("Error: AQICN_API_KEY environment variable not set")
         return
     
+    if not OPENWEATHER_API_KEY:
+        print("Error: OPENWEATHER_API_KEY environment variable not set")
+        print("Please get a free API key from https://openweathermap.org/api")
+        return
+    
     print("Starting Jakarta Weather Bot...")
     
     # Create the Application
@@ -235,6 +354,7 @@ def main():
     # Register command handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("weather", weather))
+    application.add_handler(CommandHandler("rain", rain_forecast))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("about", about_command))
     
