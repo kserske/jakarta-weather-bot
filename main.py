@@ -162,8 +162,8 @@ def format_weather_message(data):
 {weather_emoji} **Current Weather**
 🌡️ Temperature: {temp}°C (feels like {feels_like}°C)
 💧 Humidity: {humidity}%
-🌊 Pressure: {pressure} hPa
-💨 Wind Speed: {wind_speed} m/s
+#🌊 Pressure: {pressure} hPa
+#💨 Wind Speed: {wind_speed} m/s
 ☁️ Conditions: {weather_desc}
 {rain_info}
 
