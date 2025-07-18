@@ -5,11 +5,15 @@ from telegram import Update, BotCommand
 from telegram.ext import Application, CommandHandler, ContextTypes
 import json
 from datetime import datetime
+import pytz
 
 # Configuration
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 AQICN_API_KEY = os.getenv('AQICN_API_KEY')
 OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')  # Add this for weather data
+
+# Jakarta timezone
+JAKARTA_TZ = pytz.timezone('Asia/Jakarta')
 
 # API endpoints
 JAKARTA_AQI_URL = f"https://api.waqi.info/feed/jakarta/?token={AQICN_API_KEY}"
@@ -20,6 +24,7 @@ async def set_bot_commands(application):
     commands = [
         BotCommand("start", "Welcome message and bot introduction"),
         BotCommand("weather", "Get Jakarta weather and air quality"),
+        BotCommand("currentrain", "Get current real-time rainfall"),
         BotCommand("rain", "Get Jakarta rain forecast"),
         BotCommand("help", "Show help and usage instructions"),
         BotCommand("about", "About this bot and data sources"),
@@ -30,6 +35,12 @@ async def set_bot_commands(application):
         print("Bot commands menu set successfully!")
     except Exception as e:
         print(f"Error setting bot commands: {e}")
+
+def get_jakarta_time():
+    """Get current time in Jakarta timezone"""
+    utc_now = datetime.now(pytz.UTC)
+    jakarta_time = utc_now.astimezone(JAKARTA_TZ)
+    return jakarta_time
 
 def get_aqi_level(aqi_value):
     """Convert AQI number to descriptive level"""
@@ -112,6 +123,9 @@ def format_weather_message(data):
     aqi_data = data['aqi']
     weather_data = data['weather']
     
+    # Get Jakarta time
+    jakarta_time = get_jakarta_time()
+    
     # AQI information
     jakarta_aqi = aqi_data.get('aqi', 'N/A')
     jakarta_level = get_aqi_level(jakarta_aqi) if jakarta_aqi != 'N/A' else 'N/A'
@@ -143,7 +157,7 @@ def format_weather_message(data):
     # Format the message
     message = f"""
 🌤️ **Jakarta Weather Report**
-📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}
+📅 {jakarta_time.strftime('%Y-%m-%d %H:%M')} WIB
 
 {weather_emoji} **Current Weather**
 🌡️ Temperature: {temp}°C (feels like {feels_like}°C)
@@ -168,20 +182,100 @@ AQI: {jakarta_aqi} - {jakarta_level}
 """
     return message
 
-def format_rain_forecast_message(forecast_data):
+def format_current_rain_message(data):
+    """Format current rainfall data into a detailed message"""
+    if not data:
+        return "❌ Sorry, I couldn't fetch the current rainfall data right now. Please try again later."
+    
+    weather_data = data['weather']
+    jakarta_time = get_jakarta_time()
+    
+    # Current rain information
+    current_rain = "No rain detected"
+    rain_emoji = "☀️"
+    rain_details = ""
+    
+    if 'rain' in weather_data:
+        rain_emoji = "🌧️"
+        current_rain = "Rain detected!"
+        
+        if '1h' in weather_data['rain']:
+            rain_1h = weather_data['rain']['1h']
+            rain_details += f"💧 Last 1 hour: {rain_1h} mm\n"
+        
+        if '3h' in weather_data['rain']:
+            rain_3h = weather_data['rain']['3h']
+            rain_details += f"💧 Last 3 hours: {rain_3h} mm\n"
+    
+    # Weather conditions
+    weather_desc = weather_data['weather'][0]['description'].title()
+    weather_main = weather_data['weather'][0]['main']
+    
+    # Rain intensity classification
+    rain_intensity = ""
+    if 'rain' in weather_data:
+        rain_1h = weather_data['rain'].get('1h', 0)
+        if rain_1h > 0:
+            if rain_1h < 2.5:
+                rain_intensity = "Light rain 🌦️"
+            elif rain_1h < 10:
+                rain_intensity = "Moderate rain 🌧️"
+            elif rain_1h < 50:
+                rain_intensity = "Heavy rain ⛈️"
+            else:
+                rain_intensity = "Violent rain 🌊"
+    
+    # Cloud coverage
+    clouds = weather_data.get('clouds', {}).get('all', 0)
+    
+    # Visibility
+    visibility = weather_data.get('visibility', 0) / 1000 if 'visibility' in weather_data else 'N/A'
+    
+    message = f"""
+🌧️ **Jakarta Real-time Rainfall**
+📅 {jakarta_time.strftime('%Y-%m-%d %H:%M')} WIB
+
+{rain_emoji} **Current Status: {current_rain}**
+☁️ Weather: {weather_desc}
+{rain_details}
+{f"⚡ Intensity: {rain_intensity}" if rain_intensity else ""}
+
+📊 **Atmospheric Conditions:**
+☁️ Cloud Cover: {clouds}%
+👁️ Visibility: {visibility} km
+🌡️ Temperature: {weather_data['main']['temp']}°C
+💧 Humidity: {weather_data['main']['humidity']}%
+
+💡 **Rain Scale:**
+• 0-2.5 mm/h: Light rain 🌦️
+• 2.5-10 mm/h: Moderate rain 🌧️
+• 10-50 mm/h: Heavy rain ⛈️
+• 50+ mm/h: Violent rain 🌊
+
+🔄 Data updates every request
+💡 Source: OpenWeather API
+"""
+    
+    return message
     """Format rain forecast data into a readable message"""
     if not forecast_data:
         return "❌ Sorry, I couldn't fetch the rain forecast right now. Please try again later."
     
+    # Get Jakarta time
+    jakarta_time = get_jakarta_time()
+    
     message = f"""
 🌧️ **Jakarta Rain Forecast**
-📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}
+📅 {jakarta_time.strftime('%Y-%m-%d %H:%M')} WIB
 
 """
     
     rain_periods = []
     for item in forecast_data['list'][:8]:  # Next 24 hours (8 x 3-hour periods)
-        dt = datetime.fromtimestamp(item['dt'])
+        # Convert UTC timestamp to Jakarta time
+        dt_utc = datetime.fromtimestamp(item['dt'], tz=pytz.UTC)
+        dt_jakarta = dt_utc.astimezone(JAKARTA_TZ)
+        
         weather_desc = item['weather'][0]['description']
         
         rain_amount = 0
@@ -190,8 +284,8 @@ def format_rain_forecast_message(forecast_data):
         
         if 'rain' in weather_desc.lower() or rain_amount > 0:
             rain_periods.append({
-                'time': dt.strftime('%H:%M'),
-                'date': dt.strftime('%m-%d'),
+                'time': dt_jakarta.strftime('%H:%M'),
+                'date': dt_jakarta.strftime('%m-%d'),
                 'description': weather_desc.title(),
                 'amount': rain_amount
             })
@@ -199,7 +293,7 @@ def format_rain_forecast_message(forecast_data):
     if rain_periods:
         message += "🌧️ **Expected Rain Periods:**\n"
         for period in rain_periods:
-            message += f"• {period['date']} {period['time']}: {period['description']}"
+            message += f"• {period['date']} {period['time']} WIB: {period['description']}"
             if period['amount'] > 0:
                 message += f" ({period['amount']} mm)"
             message += "\n"
@@ -218,10 +312,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 I can provide you with:
 • Jakarta's current weather conditions
 • Jakarta's air quality index (AQI)
-• Real-time rain forecast for Jakarta
+• Real-time rainfall detection
+• Rain forecast for next 24 hours
 
 **Quick Commands:**
 • `/weather` - Get current weather & air quality
+• `/currentrain` - Get real-time rainfall status
 • `/rain` - Get rain forecast for next 24 hours
 • `/help` - Detailed help information
 • `/about` - About this bot
@@ -251,6 +347,15 @@ async def rain_forecast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(message, parse_mode='Markdown')
 
+async def current_rain(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send current rainfall information when /currentrain command is used."""
+    await update.message.reply_text("🔄 Fetching current rainfall data...")
+    
+    data = fetch_weather_data()
+    message = format_current_rain_message(data)
+    
+    await update.message.reply_text(message, parse_mode='Markdown')
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send help message when /help command is used."""
     help_text = """
@@ -259,6 +364,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 **Available Commands:**
 • `/start` - Welcome message and introduction
 • `/weather` - Get current Jakarta weather & air quality
+• `/currentrain` - Get real-time rainfall status & intensity
 • `/rain` - Get Jakarta rain forecast (next 24 hours)
 • `/help` - Show this detailed help message
 • `/about` - Information about this bot
@@ -291,6 +397,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • 301+: Hazardous 🔴
 
 **Data Updates:** Real-time data fetched on each request
+**Timezone:** All times shown in WIB (Western Indonesian Time)
 
 Need more help? Just ask! 😊
 """
@@ -301,14 +408,16 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     about_text = """
 🤖 **About Jakarta Weather Bot**
 
-**Version:** 2.0
+**Version:** 2.1
 **Created:** 2025 by Gilson Chin
 
 **Features:**
 • Real-time Jakarta weather data
 • Jakarta air quality index (AQI)
+• Real-time rainfall detection & intensity
 • Rain forecast for next 24 hours
 • Easy-to-understand weather conditions
+• Local Jakarta timezone (WIB)
 
 **Data Sources:**
 • OpenWeather API (Weather & Rain data)
@@ -319,6 +428,7 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Rain forecast with timing
 • More detailed weather information
 • Real-time rain detection
+• Jakarta local time display (WIB)
 
 **Developer:** Built with Python & python-telegram-bot
 **Hosting:** Railway Cloud Platform
@@ -354,6 +464,7 @@ def main():
     # Register command handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("weather", weather))
+    application.add_handler(CommandHandler("currentrain", current_rain))
     application.add_handler(CommandHandler("rain", rain_forecast))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("about", about_command))
