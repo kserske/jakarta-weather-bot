@@ -6,24 +6,42 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 import json
 from datetime import datetime
 
+# Debug: Print all environment variables
+print("=== DEBUGGING ENVIRONMENT VARIABLES ===")
+print(f"TELEGRAM_BOT_TOKEN exists: {bool(os.getenv('TELEGRAM_BOT_TOKEN'))}")
+print(f"AQICN_API_KEY exists: {bool(os.getenv('AQICN_API_KEY'))}")
+print(f"OPENWEATHER_API_KEY exists: {bool(os.getenv('OPENWEATHER_API_KEY'))}")
+print(f"OPENWEATHER_API_KEY value: {os.getenv('OPENWEATHER_API_KEY', 'NOT_SET')}")
+
+# List all environment variables that contain 'WEATHER' or 'OPEN'
+print("\n=== ALL ENV VARS CONTAINING 'WEATHER' OR 'OPEN' ===")
+for key, value in os.environ.items():
+    if 'WEATHER' in key.upper() or 'OPEN' in key.upper():
+        print(f"{key}: {value[:20]}..." if len(value) > 20 else f"{key}: {value}")
+
+print("=== END DEBUG INFO ===\n")
+
 # Configuration
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 AQICN_API_KEY = os.getenv('AQICN_API_KEY')
-OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')  # Add this for weather data
+OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
 
 # API endpoints
 JAKARTA_AQI_URL = f"https://api.waqi.info/feed/jakarta/?token={AQICN_API_KEY}"
-JAKARTA_WEATHER_URL = f"https://api.openweathermap.org/data/2.5/weather?q=Jakarta,ID&appid={OPENWEATHER_API_KEY}&units=metric"
+JAKARTA_WEATHER_URL = f"https://api.openweathermap.org/data/2.5/weather?q=Jakarta,ID&appid={OPENWEATHER_API_KEY}&units=metric" if OPENWEATHER_API_KEY else None
 
 async def set_bot_commands(application):
     """Set the bot commands menu that appears when users type /"""
     commands = [
         BotCommand("start", "Welcome message and bot introduction"),
         BotCommand("weather", "Get Jakarta weather and air quality"),
-        BotCommand("rain", "Get Jakarta rain forecast"),
         BotCommand("help", "Show help and usage instructions"),
         BotCommand("about", "About this bot and data sources"),
     ]
+    
+    # Only add rain command if OpenWeather is available
+    if OPENWEATHER_API_KEY:
+        commands.insert(2, BotCommand("rain", "Get Jakarta rain forecast"))
     
     try:
         await application.bot.set_my_commands(commands)
@@ -71,17 +89,18 @@ def fetch_weather_data():
         jakarta_aqi_response = requests.get(JAKARTA_AQI_URL, timeout=10)
         jakarta_aqi_data = jakarta_aqi_response.json()
         
-        # Get Jakarta weather data from OpenWeather
-        jakarta_weather_response = requests.get(JAKARTA_WEATHER_URL, timeout=10)
-        jakarta_weather_data = jakarta_weather_response.json()
-        
-        if jakarta_aqi_data['status'] != 'ok':
-            return None
-            
-        return {
-            'aqi': jakarta_aqi_data['data'],
-            'weather': jakarta_weather_data
+        result = {
+            'aqi': jakarta_aqi_data['data'] if jakarta_aqi_data['status'] == 'ok' else None,
+            'weather': None
         }
+        
+        # Get Jakarta weather data from OpenWeather (if available)
+        if OPENWEATHER_API_KEY and JAKARTA_WEATHER_URL:
+            jakarta_weather_response = requests.get(JAKARTA_WEATHER_URL, timeout=10)
+            if jakarta_weather_response.status_code == 200:
+                result['weather'] = jakarta_weather_response.json()
+        
+        return result
         
     except Exception as e:
         print(f"Error fetching data: {e}")
@@ -89,14 +108,16 @@ def fetch_weather_data():
 
 def fetch_rain_forecast():
     """Fetch rain forecast data for Jakarta"""
+    if not OPENWEATHER_API_KEY:
+        return None
+        
     try:
         # Use OpenWeather 5-day forecast API
         forecast_url = f"https://api.openweathermap.org/data/2.5/forecast?q=Jakarta,ID&appid={OPENWEATHER_API_KEY}&units=metric"
         response = requests.get(forecast_url, timeout=10)
-        forecast_data = response.json()
         
         if response.status_code == 200:
-            return forecast_data
+            return response.json()
         else:
             return None
             
@@ -113,38 +134,29 @@ def format_weather_message(data):
     weather_data = data['weather']
     
     # AQI information
-    jakarta_aqi = aqi_data.get('aqi', 'N/A')
+    jakarta_aqi = aqi_data.get('aqi', 'N/A') if aqi_data else 'N/A'
     jakarta_level = get_aqi_level(jakarta_aqi) if jakarta_aqi != 'N/A' else 'N/A'
     
-    # Weather information from OpenWeather
-    temp = weather_data['main']['temp']
-    feels_like = weather_data['main']['feels_like']
-    humidity = weather_data['main']['humidity']
-    pressure = weather_data['main']['pressure']
-    weather_desc = weather_data['weather'][0]['description'].title()
-    weather_emoji = get_weather_condition_emoji(weather_desc)
-    wind_speed = weather_data['wind']['speed']
-    
-    # Rain information
-    rain_info = ""
-    if 'rain' in weather_data:
-        if '1h' in weather_data['rain']:
-            rain_info = f"🌧️ Rain (1h): {weather_data['rain']['1h']} mm\n"
-        elif '3h' in weather_data['rain']:
-            rain_info = f"🌧️ Rain (3h): {weather_data['rain']['3h']} mm\n"
-    
-    # Additional weather details from AQICN if available
-    additional_info = ""
-    if 'iaqi' in aqi_data:
-        iaqi = aqi_data['iaqi']
-        if 'w' in iaqi:  # Wind from AQICN
-            additional_info += f"💨 Wind (AQICN): {iaqi['w']['v']} m/s\n"
-    
-    # Format the message
-    message = f"""
-🌤️ **Jakarta Weather Report**
-📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}
-
+    # Weather information from OpenWeather (if available)
+    weather_section = ""
+    if weather_data:
+        temp = weather_data['main']['temp']
+        feels_like = weather_data['main']['feels_like']
+        humidity = weather_data['main']['humidity']
+        pressure = weather_data['main']['pressure']
+        weather_desc = weather_data['weather'][0]['description'].title()
+        weather_emoji = get_weather_condition_emoji(weather_desc)
+        wind_speed = weather_data['wind']['speed']
+        
+        # Rain information
+        rain_info = ""
+        if 'rain' in weather_data:
+            if '1h' in weather_data['rain']:
+                rain_info = f"🌧️ Rain (1h): {weather_data['rain']['1h']} mm\n"
+            elif '3h' in weather_data['rain']:
+                rain_info = f"🌧️ Rain (3h): {weather_data['rain']['3h']} mm\n"
+        
+        weather_section = f"""
 {weather_emoji} **Current Weather**
 🌡️ Temperature: {temp}°C (feels like {feels_like}°C)
 💧 Humidity: {humidity}%
@@ -152,7 +164,32 @@ def format_weather_message(data):
 💨 Wind Speed: {wind_speed} m/s
 ☁️ Conditions: {weather_desc}
 {rain_info}
-
+"""
+    else:
+        weather_section = """
+⚠️ **Weather Data Unavailable**
+OpenWeather API not configured or temporarily unavailable.
+"""
+    
+    # Additional weather details from AQICN if available
+    additional_info = ""
+    if aqi_data and 'iaqi' in aqi_data:
+        iaqi = aqi_data['iaqi']
+        if 't' in iaqi:  # Temperature
+            additional_info += f"🌡️ Temperature (AQICN): {iaqi['t']['v']}°C\n"
+        if 'h' in iaqi:  # Humidity
+            additional_info += f"💧 Humidity (AQICN): {iaqi['h']['v']}%\n"
+        if 'p' in iaqi:  # Pressure
+            additional_info += f"🌊 Pressure (AQICN): {iaqi['p']['v']} hPa\n"
+        if 'w' in iaqi:  # Wind
+            additional_info += f"💨 Wind (AQICN): {iaqi['w']['v']} m/s\n"
+    
+    # Format the message
+    message = f"""
+🌤️ **Jakarta Weather Report**
+📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}
+{weather_section}
+{additional_info}
 🌬️ **Air Quality**
 AQI: {jakarta_aqi} - {jakarta_level}
 
@@ -212,17 +249,18 @@ def format_rain_forecast_message(forecast_data):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
-    welcome_message = """
+    openweather_status = "✅ Available" if OPENWEATHER_API_KEY else "❌ Not configured"
+    
+    welcome_message = f"""
 🌤️ **Welcome to Jakarta Weather Bot!**
 
 I can provide you with:
 • Jakarta's current weather conditions
 • Jakarta's air quality index (AQI)
-• Real-time rain forecast for Jakarta
+• Real-time rain forecast for Jakarta {openweather_status}
 
 **Quick Commands:**
 • `/weather` - Get current weather & air quality
-• `/rain` - Get rain forecast for next 24 hours
 • `/help` - Detailed help information
 • `/about` - About this bot
 
@@ -231,6 +269,10 @@ I can provide you with:
 Ready to check the weather? Try `/weather` now!
 Created by Gilson Chin
 """
+    
+    if OPENWEATHER_API_KEY:
+        welcome_message = welcome_message.replace("💡 **Tip:**", "• `/rain` - Get rain forecast for next 24 hours\n\n💡 **Tip:**")
+    
     await update.message.reply_text(welcome_message, parse_mode='Markdown')
 
 async def weather(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -244,6 +286,10 @@ async def weather(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def rain_forecast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send rain forecast when /rain command is used."""
+    if not OPENWEATHER_API_KEY:
+        await update.message.reply_text("❌ Rain forecast is not available. OpenWeather API key is not configured.")
+        return
+        
     await update.message.reply_text("🔄 Fetching rain forecast...")
     
     forecast_data = fetch_rain_forecast()
@@ -253,14 +299,18 @@ async def rain_forecast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send help message when /help command is used."""
-    help_text = """
+    rain_help = ""
+    if OPENWEATHER_API_KEY:
+        rain_help = """• `/rain` - Get Jakarta rain forecast (next 24 hours)
+"""
+    
+    help_text = f"""
 🌤️ **Jakarta Weather Bot Help**
 
 **Available Commands:**
 • `/start` - Welcome message and introduction
 • `/weather` - Get current Jakarta weather & air quality
-• `/rain` - Get Jakarta rain forecast (next 24 hours)
-• `/help` - Show this detailed help message
+{rain_help}• `/help` - Show this detailed help message
 • `/about` - Information about this bot
 
 **How to Use:**
@@ -274,13 +324,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • 🌊 Atmospheric pressure
 • 💨 Wind speed
 • ☁️ Weather conditions
-• 🌧️ Current rain data
+• 🌧️ Current rain data (if available)
 • 🌬️ Air Quality Index (AQI)
-
-**Rain Forecast:**
-• Next 24 hours rain prediction
-• Rain intensity and timing
-• Weather conditions during rain periods
 
 **Air Quality Scale:**
 • 0-50: Good 🟢
@@ -298,7 +343,9 @@ Need more help? Just ask! 😊
 
 async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send information about the bot."""
-    about_text = """
+    openweather_status = "✅ Active" if OPENWEATHER_API_KEY else "❌ Not configured"
+    
+    about_text = f"""
 🤖 **About Jakarta Weather Bot**
 
 **Version:** 2.0
@@ -307,18 +354,13 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 **Features:**
 • Real-time Jakarta weather data
 • Jakarta air quality index (AQI)
-• Rain forecast for next 24 hours
+• Rain forecast for next 24 hours {openweather_status}
 • Easy-to-understand weather conditions
 
 **Data Sources:**
-• OpenWeather API (Weather & Rain data)
-• AQICN (World Air Quality Index Project)
+• OpenWeather API {openweather_status}
+• AQICN (World Air Quality Index Project) ✅
 • Updates every request with fresh data
-
-**New Features:**
-• Rain forecast with timing
-• More detailed weather information
-• Real-time rain detection
 
 **Developer:** Built with Python & python-telegram-bot
 **Hosting:** Railway Cloud Platform
@@ -341,10 +383,12 @@ def main():
         print("Error: AQICN_API_KEY environment variable not set")
         return
     
+    # Make OpenWeather optional - bot will still work without it
     if not OPENWEATHER_API_KEY:
-        print("Error: OPENWEATHER_API_KEY environment variable not set")
-        print("Please get a free API key from https://openweathermap.org/api")
-        return
+        print("Warning: OPENWEATHER_API_KEY environment variable not set")
+        print("Bot will run with limited functionality (AQI only)")
+    else:
+        print("OpenWeather API key found - full functionality enabled")
     
     print("Starting Jakarta Weather Bot...")
     
@@ -354,12 +398,15 @@ def main():
     # Register command handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("weather", weather))
-    application.add_handler(CommandHandler("rain", rain_forecast))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("about", about_command))
     
+    # Only add rain command if OpenWeather is available
+    if OPENWEATHER_API_KEY:
+        application.add_handler(CommandHandler("rain", rain_forecast))
+    
     # Start the bot
-    print("Bot is running with command menu enabled...")
+    print("Bot is running...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
