@@ -255,6 +255,8 @@ def format_current_rain_message(data):
 """
     
     return message
+
+def format_rain_forecast_message(forecast_data):
     """Format rain forecast data into a readable message"""
     if not forecast_data:
         return "❌ Sorry, I couldn't fetch the rain forecast right now. Please try again later."
