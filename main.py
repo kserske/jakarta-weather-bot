@@ -535,6 +535,15 @@ async def weather(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(message, parse_mode='Markdown')
 
+async def current_rain(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send current rain status when /currentrain command is used."""
+    await update.message.reply_text("🔄 Checking current rain status...")
+    
+    weather_data = fetch_current_rain_data()
+    message = format_current_rain_message(weather_data)
+    
+    await update.message.reply_text(message, parse_mode='Markdown')
+
 async def rain_forecast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send rain forecast when /rain command is used."""
     await update.message.reply_text("🔄 Fetching rain forecast...")
