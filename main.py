@@ -687,13 +687,6 @@ async def rain_forecast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = format_rain_forecast_message(forecast_data)
     
     await update.message.reply_text(message, parse_mode='Markdown')
-    """Send rain forecast when /rain command is used."""
-    await update.message.reply_text("🔄 Fetching rain forecast...")
-    
-    forecast_data = fetch_rain_forecast()
-    message = format_rain_forecast_message(forecast_data)
-    
-    await update.message.reply_text(message, parse_mode='Markdown')
 
 async def aqi_map(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send air quality map when /aqimap command is used."""
