@@ -1,252 +1,449 @@
 import os
 import requests
 import asyncio
-from telegram import Update
+from telegram import Update, BotCommand
 from telegram.ext import Application, CommandHandler, ContextTypes
 import json
 from datetime import datetime
+import concurrent.futures
+from typing import Dict, List, Optional
 
 # Configuration
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 AQICN_API_KEY = os.getenv('AQICN_API_KEY')
+OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
 
-# AQICN API endpoints
+# API endpoints
 JAKARTA_AQI_URL = f"https://api.waqi.info/feed/jakarta/?token={AQICN_API_KEY}"
-SINGAPORE_AQI_URL = f"https://api.waqi.info/feed/singapore/?token={AQICN_API_KEY}"
+JAKARTA_WEATHER_URL = f"https://api.openweathermap.org/data/2.5/weather?q=Jakarta,ID&appid={OPENWEATHER_API_KEY}&units=metric"
 
-# Jakarta area monitoring stations
-JAKARTA_STATIONS = {
-    'Central Jakarta': [
-        f"https://api.waqi.info/feed/jakarta-central/?token={AQICN_API_KEY}",
-        f"https://api.waqi.info/feed/jakarta-gambir/?token={AQICN_API_KEY}",
-        f"https://api.waqi.info/feed/jakarta-menteng/?token={AQICN_API_KEY}"
-    ],
-    'North Jakarta': [
-        f"https://api.waqi.info/feed/jakarta-north/?token={AQICN_API_KEY}",
-        f"https://api.waqi.info/feed/jakarta-kelapa-gading/?token={AQICN_API_KEY}",
-        f"https://api.waqi.info/feed/jakarta-ancol/?token={AQICN_API_KEY}"
-    ],
-    'South Jakarta': [
-        f"https://api.waqi.info/feed/jakarta-south/?token={AQICN_API_KEY}",
-        f"https://api.waqi.info/feed/jakarta-kebayoran/?token={AQICN_API_KEY}",
-        f"https://api.waqi.info/feed/jakarta-senayan/?token={AQICN_API_KEY}"
-    ],
-    'East Jakarta': [
-        f"https://api.waqi.info/feed/jakarta-east/?token={AQICN_API_KEY}",
-        f"https://api.waqi.info/feed/jakarta-cakung/?token={AQICN_API_KEY}",
-        f"https://api.waqi.info/feed/jakarta-duren-sawit/?token={AQICN_API_KEY}"
-    ],
-    'West Jakarta': [
-        f"https://api.waqi.info/feed/jakarta-west/?token={AQICN_API_KEY}",
-        f"https://api.waqi.info/feed/jakarta-grogol/?token={AQICN_API_KEY}",
-        f"https://api.waqi.info/feed/jakarta-kebon-jeruk/?token={AQICN_API_KEY}"
-    ]
+# Jakarta area coordinates and monitoring stations
+JAKARTA_AREAS = {
+    'central': {
+        'name': 'Central Jakarta',
+        'emoji': '🏢',
+        'stations': ['jakarta', 'jakarta-central', 'monas'],
+        'coordinates': (-6.2088, 106.8456)  # Central Jakarta coordinates
+    },
+    'north': {
+        'name': 'North Jakarta',
+        'emoji': '🏭',
+        'stations': ['jakarta-north', 'kelapa-gading', 'ancol'],
+        'coordinates': (-6.1381, 106.8635)  # North Jakarta coordinates
+    },
+    'south': {
+        'name': 'South Jakarta',
+        'emoji': '🏘️',
+        'stations': ['jakarta-south', 'kebayoran', 'pondok-indah'],
+        'coordinates': (-6.2615, 106.8106)  # South Jakarta coordinates
+    },
+    'east': {
+        'name': 'East Jakarta',
+        'emoji': '🏗️',
+        'stations': ['jakarta-east', 'cakung', 'jatinegara'],
+        'coordinates': (-6.2250, 106.9004)  # East Jakarta coordinates
+    },
+    'west': {
+        'name': 'West Jakarta',
+        'emoji': '🏪',
+        'stations': ['jakarta-west', 'grogol', 'kebon-jeruk'],
+        'coordinates': (-6.1683, 106.7593)  # West Jakarta coordinates
+    }
 }
 
-def get_aqi_level(aqi_value):
-    """Convert AQI number to descriptive level"""
-    if aqi_value <= 50:
-        return "Good 🟢"
-    elif aqi_value <= 100:
-        return "Moderate 🟡"
-    elif aqi_value <= 150:
-        return "Unhealthy for Sensitive Groups 🟠"
-    elif aqi_value <= 200:
-        return "Unhealthy 🔴"
-    elif aqi_value <= 300:
-        return "Very Unhealthy 🟣"
-    else:
-        return "Hazardous 🔴"
-
-def get_aqi_emoji(aqi_value):
-    """Get emoji for AQI value"""
-    if aqi_value <= 50:
-        return "🟢"
-    elif aqi_value <= 100:
-        return "🟡"
-    elif aqi_value <= 150:
-        return "🟠"
-    elif aqi_value <= 200:
-        return "🔴"
-    elif aqi_value <= 300:
-        return "🟣"
-    else:
-        return "⚫"
-
-def fetch_station_data(url):
-    """Fetch data from a single station"""
+async def set_bot_commands(application):
+    """Set the bot commands menu that appears when users type /"""
+    commands = [
+        BotCommand("start", "Welcome message and bot introduction"),
+        BotCommand("weather", "Get Jakarta weather and air quality"),
+        BotCommand("rain", "Get Jakarta rain forecast"),
+        BotCommand("aqimap", "Get air quality map for all Jakarta areas"),
+        BotCommand("help", "Show help and usage instructions"),
+        BotCommand("about", "About this bot and data sources"),
+    ]
+    
     try:
+        await application.bot.set_my_commands(commands)
+        print("Bot commands menu set successfully!")
+    except Exception as e:
+        print(f"Error setting bot commands: {e}")
+
+def get_aqi_level(aqi_value):
+    """Convert AQI number to descriptive level with emoji"""
+    try:
+        aqi = int(aqi_value)
+        if aqi <= 50:
+            return "Good 🟢", "🟢"
+        elif aqi <= 100:
+            return "Moderate 🟡", "🟡"
+        elif aqi <= 150:
+            return "Unhealthy for Sensitive Groups 🟠", "🟠"
+        elif aqi <= 200:
+            return "Unhealthy 🔴", "🔴"
+        elif aqi <= 300:
+            return "Very Unhealthy 🟣", "🟣"
+        else:
+            return "Hazardous ⚫", "⚫"
+    except (ValueError, TypeError):
+        return "N/A ⚪", "⚪"
+
+def get_weather_condition_emoji(condition):
+    """Get emoji for weather condition"""
+    condition_lower = condition.lower()
+    if 'clear' in condition_lower:
+        return '☀️'
+    elif 'cloud' in condition_lower:
+        return '☁️'
+    elif 'rain' in condition_lower or 'drizzle' in condition_lower:
+        return '🌧️'
+    elif 'thunder' in condition_lower or 'storm' in condition_lower:
+        return '⛈️'
+    elif 'snow' in condition_lower:
+        return '❄️'
+    elif 'mist' in condition_lower or 'fog' in condition_lower:
+        return '🌫️'
+    else:
+        return '🌤️'
+
+def fetch_aqi_for_station(station: str) -> Optional[Dict]:
+    """Fetch AQI data for a specific station"""
+    try:
+        url = f"https://api.waqi.info/feed/{station}/?token={AQICN_API_KEY}"
         response = requests.get(url, timeout=5)
         data = response.json()
-        if data['status'] == 'ok':
-            return data['data'].get('aqi', None)
-    except:
-        pass
+        
+        if data.get('status') == 'ok' and 'data' in data:
+            return {
+                'station': station,
+                'aqi': data['data'].get('aqi', 'N/A'),
+                'time': data['data'].get('time', {}).get('s', 'N/A')
+            }
+    except Exception as e:
+        print(f"Error fetching AQI for {station}: {e}")
+    
     return None
 
-def fetch_jakarta_area_data():
-    """Fetch AQI data from all Jakarta areas"""
-    area_data = {}
-    
-    for area, stations in JAKARTA_STATIONS.items():
-        aqi_values = []
-        for station_url in stations:
-            aqi = fetch_station_data(station_url)
-            if aqi and isinstance(aqi, (int, float)):
-                aqi_values.append(aqi)
+def fetch_aqi_by_coordinates(lat: float, lon: float) -> Optional[Dict]:
+    """Fetch AQI data using coordinates as fallback"""
+    try:
+        url = f"https://api.waqi.info/feed/geo:{lat};{lon}/?token={AQICN_API_KEY}"
+        response = requests.get(url, timeout=5)
+        data = response.json()
         
-        if aqi_values:
-            # Calculate average AQI for the area
-            avg_aqi = sum(aqi_values) / len(aqi_values)
-            area_data[area] = {
-                'avg_aqi': round(avg_aqi),
-                'stations_count': len(aqi_values),
-                'values': aqi_values
+        if data.get('status') == 'ok' and 'data' in data:
+            return {
+                'station': f"geo:{lat},{lon}",
+                'aqi': data['data'].get('aqi', 'N/A'),
+                'time': data['data'].get('time', {}).get('s', 'N/A')
             }
-        else:
-            area_data[area] = {
-                'avg_aqi': None,
-                'stations_count': 0,
-                'values': []
-            }
+    except Exception as e:
+        print(f"Error fetching AQI for coordinates {lat},{lon}: {e}")
     
-    return area_data
+    return None
+
+def get_best_aqi_for_area(area_key: str, area_data: Dict) -> Dict:
+    """Get the best available AQI data for an area"""
+    area_info = {
+        'name': area_data['name'],
+        'emoji': area_data['emoji'],
+        'aqi': 'N/A',
+        'level': 'N/A ⚪',
+        'color': '⚪',
+        'source': 'No data available'
+    }
+    
+    # Try to get data from predefined stations
+    for station in area_data['stations']:
+        aqi_data = fetch_aqi_for_station(station)
+        if aqi_data and aqi_data['aqi'] != 'N/A':
+            level, color = get_aqi_level(aqi_data['aqi'])
+            area_info.update({
+                'aqi': aqi_data['aqi'],
+                'level': level,
+                'color': color,
+                'source': f"Station: {station}"
+            })
+            break
+    
+    # If no station data available, try coordinates
+    if area_info['aqi'] == 'N/A':
+        lat, lon = area_data['coordinates']
+        coord_data = fetch_aqi_by_coordinates(lat, lon)
+        if coord_data and coord_data['aqi'] != 'N/A':
+            level, color = get_aqi_level(coord_data['aqi'])
+            area_info.update({
+                'aqi': coord_data['aqi'],
+                'level': level,
+                'color': color,
+                'source': f"Coordinates: {lat}, {lon}"
+            })
+    
+    return area_info
+
+def fetch_jakarta_aqi_map() -> Dict:
+    """Fetch AQI data for all Jakarta areas"""
+    jakarta_map = {}
+    
+    # Use ThreadPoolExecutor for concurrent requests
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_area = {
+            executor.submit(get_best_aqi_for_area, area_key, area_data): area_key
+            for area_key, area_data in JAKARTA_AREAS.items()
+        }
+        
+        for future in concurrent.futures.as_completed(future_to_area):
+            area_key = future_to_area[future]
+            try:
+                result = future.result()
+                jakarta_map[area_key] = result
+            except Exception as e:
+                print(f"Error processing {area_key}: {e}")
+                # Provide fallback data
+                jakarta_map[area_key] = {
+                    'name': JAKARTA_AREAS[area_key]['name'],
+                    'emoji': JAKARTA_AREAS[area_key]['emoji'],
+                    'aqi': 'N/A',
+                    'level': 'N/A ⚪',
+                    'color': '⚪',
+                    'source': 'Error fetching data'
+                }
+    
+    return jakarta_map
+
+def format_aqi_map_message(aqi_map: Dict) -> str:
+    """Format the AQI map data into a readable message"""
+    if not aqi_map:
+        return "❌ Sorry, I couldn't fetch the air quality map right now. Please try again later."
+    
+    message = f"""
+🗺️ **Jakarta Air Quality Map**
+📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+"""
+    
+    # Visual map representation
+    message += "📍 **Air Quality by Area:**\n\n"
+    
+    # Create a visual map layout
+    north = aqi_map.get('north', {})
+    central = aqi_map.get('central', {})
+    west = aqi_map.get('west', {})
+    east = aqi_map.get('east', {})
+    south = aqi_map.get('south', {})
+    
+    # Visual map layout
+    message += f"""
+```
+      {north.get('color', '⚪')} North
+         |
+{west.get('color', '⚪')} West - {central.get('color', '⚪')} Central - {east.get('color', '⚪')} East
+         |
+      {south.get('color', '⚪')} South
+```
+
+"""
+    
+    # Detailed information for each area
+    message += "📊 **Detailed Information:**\n\n"
+    
+    # Sort areas by AQI value (lowest first, N/A last)
+    sorted_areas = []
+    for area_key, area_data in aqi_map.items():
+        aqi_value = area_data.get('aqi', 'N/A')
+        sort_key = float('inf') if aqi_value == 'N/A' else int(aqi_value)
+        sorted_areas.append((sort_key, area_key, area_data))
+    
+    sorted_areas.sort(key=lambda x: x[0])
+    
+    for _, area_key, area_data in sorted_areas:
+        message += f"{area_data.get('emoji', '📍')} **{area_data.get('name', 'Unknown')}**\n"
+        message += f"   AQI: {area_data.get('aqi', 'N/A')} - {area_data.get('level', 'N/A')}\n"
+        message += f"   Source: {area_data.get('source', 'Unknown')}\n\n"
+    
+    # Add legend and recommendations
+    message += """
+📊 **AQI Scale:**
+🟢 0-50: Good
+🟡 51-100: Moderate
+🟠 101-150: Unhealthy for Sensitive Groups
+🔴 151-200: Unhealthy
+🟣 201-300: Very Unhealthy
+⚫ 301+: Hazardous
+⚪ N/A: No data available
+
+💡 **Tips:**
+• Choose areas with lower AQI for outdoor activities
+• Use masks in areas with AQI > 100
+• Data refreshed on each request
+
+📡 Data from AQICN (World Air Quality Index Project)
+"""
+    
+    return message
 
 def fetch_weather_data():
-    """Fetch weather and air quality data from AQICN"""
+    """Fetch weather and air quality data"""
     try:
-        # Get Jakarta data
-        jakarta_response = requests.get(JAKARTA_AQI_URL, timeout=10)
-        jakarta_data = jakarta_response.json()
+        # Get Jakarta AQI data
+        jakarta_aqi_response = requests.get(JAKARTA_AQI_URL, timeout=10)
+        jakarta_aqi_data = jakarta_aqi_response.json()
         
-        # Get Singapore data
-        singapore_response = requests.get(SINGAPORE_AQI_URL, timeout=10)
-        singapore_data = singapore_response.json()
+        # Get Jakarta weather data from OpenWeather
+        jakarta_weather_response = requests.get(JAKARTA_WEATHER_URL, timeout=10)
+        jakarta_weather_data = jakarta_weather_response.json()
         
-        if jakarta_data['status'] != 'ok' or singapore_data['status'] != 'ok':
+        if jakarta_aqi_data['status'] != 'ok':
             return None
             
         return {
-            'jakarta': jakarta_data['data'],
-            'singapore': singapore_data['data']
+            'aqi': jakarta_aqi_data['data'],
+            'weather': jakarta_weather_data
         }
         
     except Exception as e:
         print(f"Error fetching data: {e}")
         return None
 
-def format_jakarta_aqi_map(area_data):
-    """Create a visual map of Jakarta AQI by area"""
-    if not area_data:
-        return "❌ Unable to fetch Jakarta area AQI data"
-    
-    # Get AQI values for positioning
-    north_aqi = area_data.get('North Jakarta', {}).get('avg_aqi')
-    central_aqi = area_data.get('Central Jakarta', {}).get('avg_aqi')
-    south_aqi = area_data.get('South Jakarta', {}).get('avg_aqi')
-    east_aqi = area_data.get('East Jakarta', {}).get('avg_aqi')
-    west_aqi = area_data.get('West Jakarta', {}).get('avg_aqi')
-    
-    # Create visual map
-    map_visual = f"""
-🗺️ **Jakarta AQI Map**
-
-```
-        {get_aqi_emoji(north_aqi) if north_aqi else '⚪'} North Jakarta
-        AQI: {north_aqi if north_aqi else 'N/A'}
-
-{get_aqi_emoji(west_aqi) if west_aqi else '⚪'} West    🏛️ Central    {get_aqi_emoji(east_aqi) if east_aqi else '⚪'} East
-AQI: {west_aqi if west_aqi else 'N/A'}   AQI: {central_aqi if central_aqi else 'N/A'}   AQI: {east_aqi if east_aqi else 'N/A'}
-
-        {get_aqi_emoji(south_aqi) if south_aqi else '⚪'} South Jakarta
-        AQI: {south_aqi if south_aqi else 'N/A'}
-```
-
-📊 **Detailed Area Breakdown:**
-"""
-    
-    for area, data in area_data.items():
-        if data['avg_aqi']:
-            level = get_aqi_level(data['avg_aqi'])
-            map_visual += f"• **{area}**: {data['avg_aqi']} - {level}\n"
-            map_visual += f"  └ Based on {data['stations_count']} station(s)\n"
+def fetch_rain_forecast():
+    """Fetch rain forecast data for Jakarta"""
+    try:
+        # Use OpenWeather 5-day forecast API
+        forecast_url = f"https://api.openweathermap.org/data/2.5/forecast?q=Jakarta,ID&appid={OPENWEATHER_API_KEY}&units=metric"
+        response = requests.get(forecast_url, timeout=10)
+        forecast_data = response.json()
+        
+        if response.status_code == 200:
+            return forecast_data
         else:
-            map_visual += f"• **{area}**: No data available\n"
-    
-    return map_visual
+            return None
+            
+    except Exception as e:
+        print(f"Error fetching rain forecast: {e}")
+        return None
 
 def format_weather_message(data):
     """Format the weather data into a readable message"""
     if not data:
         return "❌ Sorry, I couldn't fetch the weather data right now. Please try again later."
     
-    jakarta_data = data['jakarta']
-    singapore_data = data['singapore']
+    aqi_data = data['aqi']
+    weather_data = data['weather']
     
-    # Jakarta information
-    jakarta_aqi = jakarta_data.get('aqi', 'N/A')
-    jakarta_level = get_aqi_level(jakarta_aqi) if jakarta_aqi != 'N/A' else 'N/A'
+    # AQI information
+    jakarta_aqi = aqi_data.get('aqi', 'N/A')
+    jakarta_level = get_aqi_level(jakarta_aqi)[0] if jakarta_aqi != 'N/A' else 'N/A'
     
-    # Singapore information
-    singapore_aqi = singapore_data.get('aqi', 'N/A')
-    singapore_level = get_aqi_level(singapore_aqi) if singapore_aqi != 'N/A' else 'N/A'
+    # Weather information from OpenWeather
+    temp = weather_data['main']['temp']
+    feels_like = weather_data['main']['feels_like']
+    humidity = weather_data['main']['humidity']
+    pressure = weather_data['main']['pressure']
+    weather_desc = weather_data['weather'][0]['description'].title()
+    weather_emoji = get_weather_condition_emoji(weather_desc)
+    wind_speed = weather_data['wind']['speed']
     
-    # Weather details for Jakarta
-    weather_info = ""
-    if 'iaqi' in jakarta_data:
-        iaqi = jakarta_data['iaqi']
-        if 't' in iaqi:  # Temperature
-            weather_info += f"🌡️ Temperature: {iaqi['t']['v']}°C\n"
-        if 'h' in iaqi:  # Humidity
-            weather_info += f"💧 Humidity: {iaqi['h']['v']}%\n"
-        if 'p' in iaqi:  # Pressure
-            weather_info += f"🌊 Pressure: {iaqi['p']['v']} hPa\n"
-        if 'w' in iaqi:  # Wind
-            weather_info += f"💨 Wind: {iaqi['w']['v']} m/s\n"
+    # Rain information
+    rain_info = ""
+    if 'rain' in weather_data:
+        if '1h' in weather_data['rain']:
+            rain_info = f"🌧️ Rain (1h): {weather_data['rain']['1h']} mm\n"
+        elif '3h' in weather_data['rain']:
+            rain_info = f"🌧️ Rain (3h): {weather_data['rain']['3h']} mm\n"
     
     # Format the message
     message = f"""
-🌤️ **Weather Report**
+🌤️ **Jakarta Weather Report**
 📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}
 
-🏙️ **Jakarta Weather & Air Quality**
-🌬️ AQI: {jakarta_aqi} - {jakarta_level}
-{weather_info}
+{weather_emoji} **Current Weather**
+🌡️ Temperature: {temp}°C (feels like {feels_like}°C)
+💧 Humidity: {humidity}%
+🌊 Pressure: {pressure} hPa
+💨 Wind Speed: {wind_speed} m/s
+☁️ Conditions: {weather_desc}
+{rain_info}
 
-🇸🇬 **Singapore Air Quality (PSI)**
-🌬️ AQI: {singapore_aqi} - {singapore_level}
+🌬️ **Air Quality (General Jakarta)**
+AQI: {jakarta_aqi} - {jakarta_level}
+
+💡 **Tip:** Use `/aqimap` to see air quality in different Jakarta areas!
 
 📊 **AQI Scale:**
-• 0-50: Good 🟢
-• 51-100: Moderate 🟡
-• 101-150: Unhealthy for Sensitive Groups 🟠
-• 151-200: Unhealthy 🔴
-• 201-300: Very Unhealthy 🟣
-• 301+: Hazardous 🔴
+• 0-50: Good 🟢 • 51-100: Moderate 🟡 • 101-150: Unhealthy for Sensitive Groups 🟠
+• 151-200: Unhealthy 🔴 • 201-300: Very Unhealthy 🟣 • 301+: Hazardous ⚫
 
-💡 Data provided by AQICN
+💡 Data from OpenWeather & AQICN
 """
+    return message
+
+def format_rain_forecast_message(forecast_data):
+    """Format rain forecast data into a readable message"""
+    if not forecast_data:
+        return "❌ Sorry, I couldn't fetch the rain forecast right now. Please try again later."
+    
+    message = f"""
+🌧️ **Jakarta Rain Forecast**
+📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+"""
+    
+    rain_periods = []
+    for item in forecast_data['list'][:8]:  # Next 24 hours (8 x 3-hour periods)
+        dt = datetime.fromtimestamp(item['dt'])
+        weather_desc = item['weather'][0]['description']
+        
+        rain_amount = 0
+        if 'rain' in item:
+            rain_amount = item['rain'].get('3h', 0)
+        
+        if 'rain' in weather_desc.lower() or rain_amount > 0:
+            rain_periods.append({
+                'time': dt.strftime('%H:%M'),
+                'date': dt.strftime('%m-%d'),
+                'description': weather_desc.title(),
+                'amount': rain_amount
+            })
+    
+    if rain_periods:
+        message += "🌧️ **Expected Rain Periods:**\n"
+        for period in rain_periods:
+            message += f"• {period['date']} {period['time']}: {period['description']}"
+            if period['amount'] > 0:
+                message += f" ({period['amount']} mm)"
+            message += "\n"
+    else:
+        message += "☀️ **Good News!** No rain expected in the next 24 hours.\n"
+    
+    message += "\n💡 Data from OpenWeather"
+    
     return message
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
     welcome_message = """
-🌤️ Welcome to Jakarta Weather Bot!
+🌤️ **Welcome to Jakarta Weather Bot!**
 
 I can provide you with:
 • Jakarta's current weather conditions
 • Jakarta's air quality index (AQI)
-• Jakarta AQI map by areas (North, South, East, West, Central)
-• Singapore's PSI index for comparison
+• Real-time rain forecast for Jakarta
+• **NEW:** Air quality map for all Jakarta areas!
 
-Commands:
-/weather - Get current weather and air quality
-/aqimap - Get Jakarta AQI map by areas
-/help - Show this help message
+**Quick Commands:**
+• `/weather` - Get current weather & air quality
+• `/rain` - Get rain forecast for next 24 hours
+• `/aqimap` - Get air quality map for all Jakarta areas
+• `/help` - Detailed help information
+• `/about` - About this bot
 
-Just type /weather or /aqimap to get started!
+💡 **Tip:** Type `/` to see all available commands!
+
+🗺️ **New Feature:** Check air quality in North, South, East, West, and Central Jakarta with `/aqimap`!
+
+Ready to check the weather? Try `/weather` or `/aqimap` now!
+Created by Gilson Chin
 """
-    await update.message.reply_text(welcome_message)
+    await update.message.reply_text(welcome_message, parse_mode='Markdown')
 
 async def weather(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send weather information when /weather command is used."""
@@ -257,12 +454,21 @@ async def weather(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(message, parse_mode='Markdown')
 
-async def aqi_map(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send Jakarta AQI map when /aqimap command is used."""
-    await update.message.reply_text("🔄 Fetching AQI data from all Jakarta areas...")
+async def rain_forecast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send rain forecast when /rain command is used."""
+    await update.message.reply_text("🔄 Fetching rain forecast...")
     
-    area_data = fetch_jakarta_area_data()
-    message = format_jakarta_aqi_map(area_data)
+    forecast_data = fetch_rain_forecast()
+    message = format_rain_forecast_message(forecast_data)
+    
+    await update.message.reply_text(message, parse_mode='Markdown')
+
+async def aqi_map(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send air quality map when /aqimap command is used."""
+    await update.message.reply_text("🔄 Fetching air quality data for all Jakarta areas...")
+    
+    aqi_map_data = fetch_jakarta_aqi_map()
+    message = format_aqi_map_message(aqi_map_data)
     
     await update.message.reply_text(message, parse_mode='Markdown')
 
@@ -271,20 +477,97 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = """
 🌤️ **Jakarta Weather Bot Help**
 
-**Commands:**
-• `/start` - Welcome message
-• `/weather` - Get current Jakarta weather & Singapore PSI
-• `/aqimap` - Get Jakarta AQI map by areas
-• `/help` - Show this help message
+**Available Commands:**
+• `/start` - Welcome message and introduction
+• `/weather` - Get current Jakarta weather & air quality
+• `/rain` - Get Jakarta rain forecast (next 24 hours)
+• `/aqimap` - Get air quality map for all Jakarta areas
+• `/help` - Show this detailed help message
+• `/about` - Information about this bot
 
-**About:**
-This bot fetches real-time weather data for Jakarta and air quality information for both Jakarta and Singapore using the AQICN API. The AQI map shows air quality across different areas of Jakarta.
+**How to Use:**
+1. Type `/` to see all available commands
+2. Click on any command or type it manually
+3. The bot will respond with the requested information
 
-**Data Sources:**
-• Weather data: AQICN (World Air Quality Index)
-• Updates: Real-time data from multiple monitoring stations
+**Weather Information Includes:**
+• 🌡️ Temperature & feels-like temperature
+• 💧 Humidity
+• 🌊 Atmospheric pressure
+• 💨 Wind speed
+• ☁️ Weather conditions
+• 🌧️ Current rain data
+• 🌬️ Air Quality Index (AQI)
+
+**Air Quality Map Features:**
+• 🗺️ Visual map of Jakarta areas
+• 📊 AQI data for North, South, East, West, Central Jakarta
+• 🔄 Multiple data sources for reliability
+• 📍 Coordinate-based fallback data
+• 🏆 Areas ranked by air quality
+
+**Rain Forecast:**
+• Next 24 hours rain prediction
+• Rain intensity and timing
+• Weather conditions during rain periods
+
+**Air Quality Scale:**
+• 0-50: Good 🟢
+• 51-100: Moderate 🟡
+• 101-150: Unhealthy for Sensitive Groups 🟠
+• 151-200: Unhealthy 🔴
+• 201-300: Very Unhealthy 🟣
+• 301+: Hazardous ⚫
+
+**Data Updates:** Real-time data fetched on each request
+
+Need more help? Just ask! 😊
 """
     await update.message.reply_text(help_text, parse_mode='Markdown')
+
+async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send information about the bot."""
+    about_text = """
+🤖 **About Jakarta Weather Bot**
+
+**Version:** 3.0
+**Created:** 2025 by Gilson Chin
+
+**Features:**
+• Real-time Jakarta weather data
+• Jakarta air quality index (AQI)
+• Rain forecast for next 24 hours
+• **NEW:** Air quality map for all Jakarta areas
+
+**Air Quality Map:**
+• Coverage: North, South, East, West, Central Jakarta
+• Multiple monitoring stations per area
+• Coordinate-based fallback data
+• Visual map representation
+• Error-resistant data fetching
+
+**Data Sources:**
+• OpenWeather API (Weather & Rain data)
+• AQICN (World Air Quality Index Project)
+• Multiple AQI monitoring stations
+• Updates every request with fresh data
+
+**Technical Features:**
+• Concurrent API requests for faster response
+• Robust error handling and fallback mechanisms
+• Multiple data sources per Jakarta area
+• Visual map representation with emojis
+
+**Developer:** Built with Python & python-telegram-bot
+**Hosting:** Railway Cloud Platform
+
+**Privacy:** This bot doesn't store any personal data
+"""
+    await update.message.reply_text(about_text, parse_mode='Markdown')
+
+async def post_init(application):
+    """Initialize bot commands after the application starts."""
+    await set_bot_commands(application)
 
 def main():
     """Start the bot."""
@@ -296,19 +579,26 @@ def main():
         print("Error: AQICN_API_KEY environment variable not set")
         return
     
-    print("Starting Jakarta Weather Bot...")
+    if not OPENWEATHER_API_KEY:
+        print("Error: OPENWEATHER_API_KEY environment variable not set")
+        print("Please get a free API key from https://openweathermap.org/api")
+        return
+    
+    print("Starting Jakarta Weather Bot with Air Quality Map...")
     
     # Create the Application
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
     
     # Register command handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("weather", weather))
+    application.add_handler(CommandHandler("rain", rain_forecast))
     application.add_handler(CommandHandler("aqimap", aqi_map))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("about", about_command))
     
     # Start the bot
-    print("Bot is running...")
+    print("Bot is running with Air Quality Map feature enabled...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
