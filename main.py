@@ -17,37 +17,37 @@ OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
 JAKARTA_AQI_URL = f"https://api.waqi.info/feed/jakarta/?token={AQICN_API_KEY}"
 JAKARTA_WEATHER_URL = f"https://api.openweathermap.org/data/2.5/weather?q=Jakarta,ID&appid={OPENWEATHER_API_KEY}&units=metric"
 
-# Jakarta area coordinates and actual monitoring stations
+# Jakarta area coordinates with multiple monitoring points for better coverage
 JAKARTA_AREAS = {
     'central': {
         'name': 'Central Jakarta',
         'emoji': '🏢',
-        'stations': ['indonesia/jakarta/us-consulate/central', 'indonesia/gelora-jakarta-gbk', 'indonesia/kemayoran'],
-        'coordinates': (-6.2088, 106.8456)  # Central Jakarta coordinates
+        'stations': ['indonesia/jakarta/us-consulate/central', 'indonesia/gelora-jakarta-gbk', 'indonesia/kemayoran', 'jakarta'],
+        'coordinates': [(-6.2088, 106.8456), (-6.2182, 106.8142), (-6.1951, 106.8451)]  # Multiple points
     },
     'south': {
         'name': 'South Jakarta',
         'emoji': '🏘️',
         'stations': ['indonesia/jakarta/us-consulate/south', 'indonesia/jakarta-selatan', 'indonesia/jakarta/kebayoran'],
-        'coordinates': (-6.2615, 106.8106)  # South Jakarta coordinates
+        'coordinates': [(-6.2615, 106.8106), (-6.2934, 106.7847), (-6.2408, 106.7834)]  # Multiple points
     },
     'north': {
         'name': 'North Jakarta',
         'emoji': '🏭',
         'stations': ['indonesia/jakarta-utara', 'indonesia/jakarta/kelapa-gading', 'indonesia/jakarta/ancol'],
-        'coordinates': (-6.1381, 106.8635)  # North Jakarta coordinates
+        'coordinates': [(-6.1381, 106.8635), (-6.1744, 106.9056), (-6.1222, 106.8306)]  # Multiple points
     },
     'east': {
         'name': 'East Jakarta',
         'emoji': '🏗️',
         'stations': ['indonesia/jakarta-timur', 'indonesia/jakarta/cakung', 'indonesia/jakarta-east'],
-        'coordinates': (-6.2250, 106.9004)  # East Jakarta coordinates
+        'coordinates': [(-6.2250, 106.9004), (-6.1845, 106.9498), (-6.2643, 106.8975)]  # Multiple points
     },
     'west': {
         'name': 'West Jakarta',
         'emoji': '🏪',
         'stations': ['indonesia/jakarta-barat', 'indonesia/jakarta/grogol', 'indonesia/jakarta-west'],
-        'coordinates': (-6.1683, 106.7593)  # West Jakarta coordinates
+        'coordinates': [(-6.1683, 106.7593), (-6.1698, 106.7900), (-6.1456, 106.7289)]  # Multiple points
     }
 }
 
@@ -164,67 +164,94 @@ def fetch_aqi_by_coordinates(lat: float, lon: float) -> Optional[Dict]:
     
     return None
 
-def get_best_aqi_for_area(area_key: str, area_data: Dict) -> Dict:
-    """Get the best available AQI data for an area"""
+def get_multiple_aqi_readings_for_area(area_key: str, area_data: Dict) -> Dict:
+    """Get multiple AQI readings for an area and calculate average"""
     area_info = {
         'name': area_data['name'],
         'emoji': area_data['emoji'],
         'aqi': 'N/A',
         'level': 'N/A ⚪',
         'color': '⚪',
-        'source': 'No data available'
+        'source': 'No data available',
+        'readings': [],
+        'data_points': 0
     }
     
+    valid_readings = []
+    sources_used = []
+    
     # Try to get data from predefined stations
+    print(f"\n--- Fetching data for {area_key.upper()} ---")
     for station in area_data['stations']:
         aqi_data = fetch_aqi_for_station(station)
         if aqi_data and aqi_data['aqi'] not in ['N/A', '-', None, '']:
             try:
-                # Validate AQI value
                 aqi_int = int(aqi_data['aqi'])
-                level, color = get_aqi_level(aqi_int)
-                area_info.update({
-                    'aqi': aqi_int,
-                    'level': level,
-                    'color': color,
-                    'source': f"Station: {station.split('/')[-1]}"
-                })
-                print(f"Success: {area_key} -> {station} -> AQI: {aqi_int}")
-                break
+                valid_readings.append(aqi_int)
+                sources_used.append(f"Station: {station.split('/')[-1]}")
+                print(f"✅ {station} -> AQI: {aqi_int}")
             except (ValueError, TypeError):
-                print(f"Invalid AQI value for {area_key} -> {station}: {aqi_data['aqi']}")
-                continue
+                print(f"❌ {station} -> Invalid AQI: {aqi_data['aqi']}")
         else:
-            print(f"Failed: {area_key} -> {station} -> No valid data")
+            print(f"❌ {station} -> No data")
     
-    # If no station data available, try coordinates
-    if area_info['aqi'] == 'N/A':
-        lat, lon = area_data['coordinates']
-        coord_data = fetch_aqi_by_coordinates(lat, lon)
-        if coord_data and coord_data['aqi'] not in ['N/A', '-', None, '']:
-            try:
-                aqi_int = int(coord_data['aqi'])
-                level, color = get_aqi_level(aqi_int)
-                area_info.update({
-                    'aqi': aqi_int,
-                    'level': level,
-                    'color': color,
-                    'source': f"Coordinates: {lat}, {lon}"
-                })
-                print(f"Coordinate fallback: {area_key} -> AQI: {aqi_int}")
-            except (ValueError, TypeError):
-                print(f"Invalid coordinate AQI for {area_key}: {coord_data['aqi']}")
+    # Try coordinate-based readings if we don't have enough data
+    if len(valid_readings) < 2:  # Try to get at least 2 readings
+        coordinates = area_data['coordinates']
+        for i, (lat, lon) in enumerate(coordinates):
+            coord_data = fetch_aqi_by_coordinates(lat, lon)
+            if coord_data and coord_data['aqi'] not in ['N/A', '-', None, '']:
+                try:
+                    aqi_int = int(coord_data['aqi'])
+                    valid_readings.append(aqi_int)
+                    sources_used.append(f"Point-{i+1} ({lat:.3f},{lon:.3f})")
+                    print(f"✅ Coordinates {lat:.3f},{lon:.3f} -> AQI: {aqi_int}")
+                except (ValueError, TypeError):
+                    print(f"❌ Coordinates {lat:.3f},{lon:.3f} -> Invalid AQI: {coord_data['aqi']}")
+            else:
+                print(f"❌ Coordinates {lat:.3f},{lon:.3f} -> No data")
+    
+    # Calculate average if we have valid readings
+    if valid_readings:
+        # Remove outliers if we have enough data points
+        if len(valid_readings) >= 3:
+            # Remove extreme outliers (values that are too far from median)
+            median_val = sorted(valid_readings)[len(valid_readings)//2]
+            filtered_readings = [r for r in valid_readings if abs(r - median_val) < median_val * 0.5]
+            if len(filtered_readings) >= 2:  # Use filtered if we still have enough data
+                valid_readings = filtered_readings
+                print(f"📊 Filtered outliers, using {len(filtered_readings)} readings")
+        
+        avg_aqi = round(sum(valid_readings) / len(valid_readings))
+        level, color = get_aqi_level(avg_aqi)
+        
+        area_info.update({
+            'aqi': avg_aqi,
+            'level': level,
+            'color': color,
+            'source': f"{len(valid_readings)} data points (avg: {avg_aqi})",
+            'readings': valid_readings,
+            'data_points': len(valid_readings),
+            'sources_detail': sources_used
+        })
+        
+        print(f"📊 {area_key.upper()} SUMMARY:")
+        print(f"   Readings: {valid_readings}")
+        print(f"   Average AQI: {avg_aqi}")
+        print(f"   Level: {level}")
+    else:
+        print(f"❌ {area_key.upper()} -> No valid data found")
     
     return area_info
 
 def fetch_jakarta_aqi_map() -> Dict:
-    """Fetch AQI data for all Jakarta areas"""
+    """Fetch AQI data for all Jakarta areas with multiple readings per area"""
     jakarta_map = {}
     
     # Use ThreadPoolExecutor for concurrent requests
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         future_to_area = {
-            executor.submit(get_best_aqi_for_area, area_key, area_data): area_key
+            executor.submit(get_multiple_aqi_readings_for_area, area_key, area_data): area_key
             for area_key, area_data in JAKARTA_AREAS.items()
         }
         
@@ -242,7 +269,9 @@ def fetch_jakarta_aqi_map() -> Dict:
                     'aqi': 'N/A',
                     'level': 'N/A ⚪',
                     'color': '⚪',
-                    'source': 'Error fetching data'
+                    'source': 'Error fetching data',
+                    'readings': [],
+                    'data_points': 0
                 }
     
     return jakarta_map
@@ -300,8 +329,17 @@ def format_aqi_map_message(aqi_map: Dict) -> str:
     sorted_areas.sort(key=lambda x: x[0])
     
     for _, area_key, area_data in sorted_areas:
+        data_points = area_data.get('data_points', 0)
+        readings = area_data.get('readings', [])
+        
         message += f"{area_data.get('emoji', '📍')} **{area_data.get('name', 'Unknown')}**\n"
         message += f"   AQI: {area_data.get('aqi', 'N/A')} - {area_data.get('level', 'N/A')}\n"
+        
+        if data_points > 0:
+            message += f"   Data Points: {data_points} readings\n"
+            if len(readings) > 1:
+                message += f"   Range: {min(readings)}-{max(readings)} (avg: {area_data.get('aqi', 'N/A')})\n"
+        
         message += f"   Source: {area_data.get('source', 'Unknown')}\n\n"
     
     # Add legend and recommendations
@@ -318,6 +356,7 @@ def format_aqi_map_message(aqi_map: Dict) -> str:
 💡 **Tips:**
 • Choose areas with lower AQI for outdoor activities
 • Use masks in areas with AQI > 100
+• Multiple data points provide more accurate readings
 • Data refreshed on each request
 
 📡 Data from AQICN (World Air Quality Index Project)
@@ -575,6 +614,46 @@ async def weather(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(message, parse_mode='Markdown')
 
 async def current_rain(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Format rain forecast data into a readable message"""
+    if not forecast_data:
+        return "❌ Sorry, I couldn't fetch the rain forecast right now. Please try again later."
+    
+    message = f"""
+🌧️ **Jakarta Rain Forecast**
+📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+"""
+    
+    rain_periods = []
+    for item in forecast_data['list'][:8]:  # Next 24 hours (8 x 3-hour periods)
+        dt = datetime.fromtimestamp(item['dt'])
+        weather_desc = item['weather'][0]['description']
+        
+        rain_amount = 0
+        if 'rain' in item:
+            rain_amount = item['rain'].get('3h', 0)
+        
+        if 'rain' in weather_desc.lower() or rain_amount > 0:
+            rain_periods.append({
+                'time': dt.strftime('%H:%M'),
+                'date': dt.strftime('%m-%d'),
+                'description': weather_desc.title(),
+                'amount': rain_amount
+            })
+    
+    if rain_periods:
+        message += "🌧️ **Expected Rain Periods:**\n"
+        for period in rain_periods:
+            message += f"• {period['date']} {period['time']}: {period['description']}"
+            if period['amount'] > 0:
+                message += f" ({period['amount']} mm)"
+            message += "\n"
+    else:
+        message += "☀️ **Good News!** No rain expected in the next 24 hours.\n"
+    
+    message += "\n💡 Data from OpenWeather"
+    
+    return message
     """Send current rain status when /currentrain command is used."""
     await update.message.reply_text("🔄 Checking current rain status...")
     
