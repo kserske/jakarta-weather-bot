@@ -114,9 +114,20 @@ def fetch_aqi_for_station(station: str) -> Optional[Dict]:
         data = response.json()
         
         if data.get('status') == 'ok' and 'data' in data:
+            aqi_value = data['data'].get('aqi', 'N/A')
+            # Handle invalid AQI values
+            if aqi_value in ['-', None, ''] or aqi_value == 'N/A':
+                return None
+            
+            # Try to convert to int to validate
+            try:
+                int(aqi_value)
+            except (ValueError, TypeError):
+                return None
+            
             return {
                 'station': station,
-                'aqi': data['data'].get('aqi', 'N/A'),
+                'aqi': aqi_value,
                 'time': data['data'].get('time', {}).get('s', 'N/A')
             }
     except Exception as e:
@@ -132,9 +143,20 @@ def fetch_aqi_by_coordinates(lat: float, lon: float) -> Optional[Dict]:
         data = response.json()
         
         if data.get('status') == 'ok' and 'data' in data:
+            aqi_value = data['data'].get('aqi', 'N/A')
+            # Handle invalid AQI values
+            if aqi_value in ['-', None, ''] or aqi_value == 'N/A':
+                return None
+            
+            # Try to convert to int to validate
+            try:
+                int(aqi_value)
+            except (ValueError, TypeError):
+                return None
+            
             return {
                 'station': f"geo:{lat},{lon}",
-                'aqi': data['data'].get('aqi', 'N/A'),
+                'aqi': aqi_value,
                 'time': data['data'].get('time', {}).get('s', 'N/A')
             }
     except Exception as e:
@@ -156,32 +178,42 @@ def get_best_aqi_for_area(area_key: str, area_data: Dict) -> Dict:
     # Try to get data from predefined stations
     for station in area_data['stations']:
         aqi_data = fetch_aqi_for_station(station)
-        if aqi_data and aqi_data['aqi'] != 'N/A':
-            level, color = get_aqi_level(aqi_data['aqi'])
-            area_info.update({
-                'aqi': aqi_data['aqi'],
-                'level': level,
-                'color': color,
-                'source': f"Station: {station.split('/')[-1]}"
-            })
-            print(f"Success: {area_key} -> {station} -> AQI: {aqi_data['aqi']}")
-            break
+        if aqi_data and aqi_data['aqi'] not in ['N/A', '-', None, '']:
+            try:
+                # Validate AQI value
+                aqi_int = int(aqi_data['aqi'])
+                level, color = get_aqi_level(aqi_int)
+                area_info.update({
+                    'aqi': aqi_int,
+                    'level': level,
+                    'color': color,
+                    'source': f"Station: {station.split('/')[-1]}"
+                })
+                print(f"Success: {area_key} -> {station} -> AQI: {aqi_int}")
+                break
+            except (ValueError, TypeError):
+                print(f"Invalid AQI value for {area_key} -> {station}: {aqi_data['aqi']}")
+                continue
         else:
-            print(f"Failed: {area_key} -> {station} -> No data")
+            print(f"Failed: {area_key} -> {station} -> No valid data")
     
     # If no station data available, try coordinates
     if area_info['aqi'] == 'N/A':
         lat, lon = area_data['coordinates']
         coord_data = fetch_aqi_by_coordinates(lat, lon)
-        if coord_data and coord_data['aqi'] != 'N/A':
-            level, color = get_aqi_level(coord_data['aqi'])
-            area_info.update({
-                'aqi': coord_data['aqi'],
-                'level': level,
-                'color': color,
-                'source': f"Coordinates: {lat}, {lon}"
-            })
-            print(f"Coordinate fallback: {area_key} -> AQI: {coord_data['aqi']}")
+        if coord_data and coord_data['aqi'] not in ['N/A', '-', None, '']:
+            try:
+                aqi_int = int(coord_data['aqi'])
+                level, color = get_aqi_level(aqi_int)
+                area_info.update({
+                    'aqi': aqi_int,
+                    'level': level,
+                    'color': color,
+                    'source': f"Coordinates: {lat}, {lon}"
+                })
+                print(f"Coordinate fallback: {area_key} -> AQI: {aqi_int}")
+            except (ValueError, TypeError):
+                print(f"Invalid coordinate AQI for {area_key}: {coord_data['aqi']}")
     
     return area_info
 
@@ -255,7 +287,14 @@ def format_aqi_map_message(aqi_map: Dict) -> str:
     sorted_areas = []
     for area_key, area_data in aqi_map.items():
         aqi_value = area_data.get('aqi', 'N/A')
-        sort_key = float('inf') if aqi_value == 'N/A' else int(aqi_value)
+        # Handle various invalid AQI values
+        try:
+            if aqi_value in ['N/A', '-', None, ''] or aqi_value == 'N/A':
+                sort_key = float('inf')
+            else:
+                sort_key = int(aqi_value)
+        except (ValueError, TypeError):
+            sort_key = float('inf')
         sorted_areas.append((sort_key, area_key, area_data))
     
     sorted_areas.sort(key=lambda x: x[0])
