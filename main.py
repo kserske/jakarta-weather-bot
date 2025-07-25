@@ -17,42 +17,42 @@ OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
 JAKARTA_AQI_URL = f"https://api.waqi.info/feed/jakarta/?token={AQICN_API_KEY}"
 JAKARTA_WEATHER_URL = f"https://api.openweathermap.org/data/2.5/weather?q=Jakarta,ID&appid={OPENWEATHER_API_KEY}&units=metric"
 
-# Updated Jakarta areas with verified monitoring stations and coordinates
+# Updated Jakarta areas with verified monitoring stations from AQI website map
 JAKARTA_AREAS = {
     'central': {
         'name': 'Central Jakarta',
         'emoji': '🏢',
-        'station': 'jakarta',  # Main Jakarta station
+        'station': 'Jakarta GBK, Gelora, Indonesia',  # GBK Stadium - Central Jakarta
         'coordinates': (-6.2088, 106.8456),  # Central Jakarta coordinates
-        'backup_stations': ['indonesia/jakarta/us-consulate', 'indonesia/kemayoran']
+        'backup_stations': ['jakarta', 'indonesia/jakarta/us-consulate', 'indonesia/kemayoran']
     },
     'west': {
         'name': 'West Jakarta',
         'emoji': '🏪',
-        'station': 'indonesia/jakarta/grogol',  # West Jakarta station
+        'station': 'Tangerang Karang Tengah, Pondok Pucung, Indonesia',  # West Jakarta/Tangerang
         'coordinates': (-6.1744, 106.7636),  # West Jakarta coordinates
-        'backup_stations': ['tangerang', 'indonesia/jakarta-barat']
+        'backup_stations': ['tangerang', 'indonesia/jakarta-barat', 'indonesia/jakarta/grogol']
     },
     'south': {
         'name': 'South Jakarta',
         'emoji': '🏘️',
-        'station': 'indonesia/jakarta/us-consulate',  # US Consulate (South Jakarta)
+        'station': 'Jalan BDN II, South Jakarta, Indonesia',  # South Jakarta
         'coordinates': (-6.2615, 106.8106),  # South Jakarta coordinates
-        'backup_stations': ['indonesia/jakarta-selatan', 'indonesia/jakarta/kebayoran']
+        'backup_stations': ['indonesia/jakarta/us-consulate', 'indonesia/jakarta-selatan', 'indonesia/jakarta/kebayoran']
     },
     'east': {
         'name': 'East Jakarta',
         'emoji': '🏗️',
-        'station': 'indonesia/jakarta/cakung',  # East Jakarta station
+        'station': 'Jakarta Timur Kebon Nanas, Cipinang Besar Selatan, Indonesia',  # East Jakarta
         'coordinates': (-6.1833, 106.9333),  # East Jakarta coordinates
-        'backup_stations': ['bekasi', 'indonesia/jakarta-timur']
+        'backup_stations': ['bekasi', 'indonesia/jakarta-timur', 'indonesia/jakarta/cakung']
     },
     'north': {
         'name': 'North Jakarta',
         'emoji': '🏭',
-        'station': 'indonesia/jakarta/kelapa-gading',  # North Jakarta station
+        'station': 'Kemayoran, Indonesia',  # North Jakarta
         'coordinates': (-6.1500, 106.9000),  # North Jakarta coordinates
-        'backup_stations': ['indonesia/jakarta-utara', 'indonesia/jakarta/ancol']
+        'backup_stations': ['indonesia/jakarta-utara', 'indonesia/jakarta/kelapa-gading', 'indonesia/jakarta/ancol']
     }
 }
 
@@ -362,11 +362,11 @@ def format_aqi_map_message(aqi_map: Dict) -> str:
 • Data refreshed on each request
 
 📍 **Monitoring Coverage:**
-• Central: Main Jakarta stations
-• West: Grogol area stations
-• South: US Consulate area
-• East: Cakung area stations
-• North: Kelapa Gading area
+• Central: Jakarta GBK, Gelora area
+• West: Tangerang Karang Tengah, Pondok Pucung
+• South: Jalan BDN II, South Jakarta
+• East: Jakarta Timur Kebon Nanas, Cipinang Besar Selatan
+• North: Kemayoran area
 
 📡 Data from AQICN (World Air Quality Index Project)
 """
