@@ -17,42 +17,42 @@ OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
 JAKARTA_AQI_URL = f"https://api.waqi.info/feed/jakarta/?token={AQICN_API_KEY}"
 JAKARTA_WEATHER_URL = f"https://api.openweathermap.org/data/2.5/weather?q=Jakarta,ID&appid={OPENWEATHER_API_KEY}&units=metric"
 
-# Updated Jakarta areas with multiple potential station identifiers
+# Updated Jakarta areas with WORKING AQICN API station identifiers based on debug results
 JAKARTA_AREAS = {
     'central': {
         'name': 'Central Jakarta',
         'emoji': '🏢',
-        'station': 'indonesia-gelora-jakarta-gbk',  # GBK Stadium
+        'station': 'indonesia/jakarta/us-consulate/central',  # US Consulate Central - VERIFIED WORKING
         'coordinates': (-6.2088, 106.8456),
-        'backup_stations': ['jakarta', 'indonesia/jakarta/us-consulate/central', 'indonesia/kemayoran', 'gelora']
+        'backup_stations': ['jakarta', 'indonesia/kemayoran', 'kemayoran']
     },
     'west': {
         'name': 'West Jakarta',
         'emoji': '🏪',
-        'station': 'tangerang-karang-tengah',  # Try shorter version
+        'station': 'tangerang',  # Simple tangerang station - more likely to work
         'coordinates': (-6.1744, 106.7636),
-        'backup_stations': ['tangerang', 'indonesia-pondok-pucung-tangerang-karang-tengah', 'indonesia/jakarta-barat', 'karang-tengah']
+        'backup_stations': ['indonesia/tangerang', 'jakarta', 'kemayoran']
     },
     'south': {
         'name': 'South Jakarta',
         'emoji': '🏘️',
-        'station': 'indonesia/jakarta/us-consulate/south',
+        'station': 'indonesia/jakarta/us-consulate/south',  # US Consulate South - VERIFIED WORKING
         'coordinates': (-6.2615, 106.8106),
-        'backup_stations': ['jakarta-selatan', 'indonesia/jakarta/us-consulate', 'indonesia/jakarta-selatan', 'south-jakarta']
+        'backup_stations': ['jakarta', 'indonesia/kemayoran', 'kemayoran']
     },
     'east': {
         'name': 'East Jakarta',
         'emoji': '🏗️',
-        'station': 'kebon-nanas',  # Try shorter version
+        'station': 'indonesia-cipinang-besar-selatan-jakarta-timur-kebon-nanas',  # From search results - VERIFIED EXISTS
         'coordinates': (-6.1833, 106.9333),
-        'backup_stations': ['indonesia-cipinang-besar-selatan-jakarta-timur-kebon-nanas', 'jakarta-timur', 'bekasi', 'indonesia/jakarta-timur']
+        'backup_stations': ['bekasi', 'jakarta', 'indonesia/kemayoran']
     },
     'north': {
         'name': 'North Jakarta',
         'emoji': '🏭',
-        'station': 'kemayoran',  # Simple version
+        'station': 'indonesia/kemayoran',  # Kemayoran - VERIFIED WORKING from debug
         'coordinates': (-6.1500, 106.9000),
-        'backup_stations': ['indonesia/kemayoran', 'indonesia/jakarta-utara', 'jakarta-utara', 'indonesia/jakarta/kelapa-gading']
+        'backup_stations': ['kemayoran', 'jakarta']
     }
 }
 
