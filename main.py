@@ -17,42 +17,42 @@ OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
 JAKARTA_AQI_URL = f"https://api.waqi.info/feed/jakarta/?token={AQICN_API_KEY}"
 JAKARTA_WEATHER_URL = f"https://api.openweathermap.org/data/2.5/weather?q=Jakarta,ID&appid={OPENWEATHER_API_KEY}&units=metric"
 
-# Updated Jakarta areas with CORRECT AQICN API station identifiers from URLs
+# Updated Jakarta areas with multiple potential station identifiers
 JAKARTA_AREAS = {
     'central': {
         'name': 'Central Jakarta',
         'emoji': '🏢',
-        'station': 'indonesia-gelora-jakarta-gbk',  # From: https://aqicn.org/station/indonesia-gelora-jakarta-gbk/
-        'coordinates': (-6.2088, 106.8456),  # Central Jakarta coordinates
-        'backup_stations': ['jakarta', 'indonesia/jakarta/us-consulate/central', 'indonesia/kemayoran']
+        'station': 'indonesia-gelora-jakarta-gbk',  # GBK Stadium
+        'coordinates': (-6.2088, 106.8456),
+        'backup_stations': ['jakarta', 'indonesia/jakarta/us-consulate/central', 'indonesia/kemayoran', 'gelora']
     },
     'west': {
         'name': 'West Jakarta',
         'emoji': '🏪',
-        'station': 'indonesia-pondok-pucung-tangerang-karang-tengah',  # Tangerang Karang Tengah area
-        'coordinates': (-6.1744, 106.7636),  # West Jakarta coordinates
-        'backup_stations': ['tangerang', 'indonesia/jakarta-barat', 'indonesia/jakarta/grogol']
+        'station': 'tangerang-karang-tengah',  # Try shorter version
+        'coordinates': (-6.1744, 106.7636),
+        'backup_stations': ['tangerang', 'indonesia-pondok-pucung-tangerang-karang-tengah', 'indonesia/jakarta-barat', 'karang-tengah']
     },
     'south': {
         'name': 'South Jakarta',
         'emoji': '🏘️',
-        'station': 'indonesia/jakarta/us-consulate/south',  # From: https://aqicn.org/city/indonesia/jakarta/us-consulate/south/
-        'coordinates': (-6.2615, 106.8106),  # South Jakarta coordinates
-        'backup_stations': ['indonesia/jakarta/us-consulate', 'indonesia/jakarta-selatan', 'indonesia/jakarta/kebayoran']
+        'station': 'indonesia/jakarta/us-consulate/south',
+        'coordinates': (-6.2615, 106.8106),
+        'backup_stations': ['jakarta-selatan', 'indonesia/jakarta/us-consulate', 'indonesia/jakarta-selatan', 'south-jakarta']
     },
     'east': {
         'name': 'East Jakarta',
         'emoji': '🏗️',
-        'station': 'indonesia-cipinang-besar-selatan-jakarta-timur-kebon-nanas',  # From: https://aqicn.org/station/indonesia-cipinang-besar-selatan-jakarta-timur-kebon-nanas/
-        'coordinates': (-6.1833, 106.9333),  # East Jakarta coordinates
-        'backup_stations': ['indonesia-east-jakarta-dki-4-lubang-buaya', 'bekasi', 'indonesia/jakarta-timur', 'indonesia/jakarta/cakung']
+        'station': 'kebon-nanas',  # Try shorter version
+        'coordinates': (-6.1833, 106.9333),
+        'backup_stations': ['indonesia-cipinang-besar-selatan-jakarta-timur-kebon-nanas', 'jakarta-timur', 'bekasi', 'indonesia/jakarta-timur']
     },
     'north': {
         'name': 'North Jakarta',
         'emoji': '🏭',
-        'station': 'indonesia/kemayoran',  # From: https://aqicn.org/city/indonesia/kemayoran/
-        'coordinates': (-6.1500, 106.9000),  # North Jakarta coordinates
-        'backup_stations': ['indonesia/jakarta-utara', 'indonesia/jakarta/kelapa-gading', 'indonesia/jakarta/ancol']
+        'station': 'kemayoran',  # Simple version
+        'coordinates': (-6.1500, 106.9000),
+        'backup_stations': ['indonesia/kemayoran', 'indonesia/jakarta-utara', 'jakarta-utara', 'indonesia/jakarta/kelapa-gading']
     }
 }
 
@@ -115,15 +115,23 @@ def fetch_aqi_for_station(station: str) -> Optional[Dict]:
     """Fetch AQI data for a specific station"""
     try:
         url = f"https://api.waqi.info/feed/{station}/?token={AQICN_API_KEY}"
+        print(f"🔍 DEBUG: Trying URL: {url}")
         response = requests.get(url, timeout=10)
         data = response.json()
         
-        print(f"Trying station: {station} - Status: {data.get('status')}")
+        print(f"🔍 DEBUG: Station '{station}' response status: {data.get('status')}")
+        print(f"🔍 DEBUG: Full response: {data}")
         
         if data.get('status') == 'ok' and 'data' in data:
             aqi_value = data['data'].get('aqi', 'N/A')
+            station_name = data['data'].get('city', {}).get('name', station)
+            
+            print(f"🔍 DEBUG: Station name from API: {station_name}")
+            print(f"🔍 DEBUG: AQI value: {aqi_value}")
+            
             # Handle invalid AQI values
             if aqi_value in ['-', None, ''] or aqi_value == 'N/A':
+                print(f"🔍 DEBUG: Invalid AQI value: {aqi_value}")
                 return None
             
             # Try to convert to int to validate
@@ -131,15 +139,19 @@ def fetch_aqi_for_station(station: str) -> Optional[Dict]:
                 int(aqi_value)
                 print(f"✅ Station {station} returned valid AQI: {aqi_value}")
             except (ValueError, TypeError):
+                print(f"❌ Station {station} returned non-numeric AQI: {aqi_value}")
                 return None
             
             return {
                 'station': station,
+                'station_name': station_name,
                 'aqi': aqi_value,
                 'time': data['data'].get('time', {}).get('s', 'N/A')
             }
+        else:
+            print(f"❌ Station {station} returned error or no data")
     except Exception as e:
-        print(f"Error fetching AQI for {station}: {e}")
+        print(f"❌ Error fetching AQI for {station}: {e}")
     
     return None
 
@@ -147,13 +159,20 @@ def fetch_aqi_by_coordinates(lat: float, lon: float) -> Optional[Dict]:
     """Fetch AQI data using coordinates as fallback"""
     try:
         url = f"https://api.waqi.info/feed/geo:{lat};{lon}/?token={AQICN_API_KEY}"
+        print(f"🔍 DEBUG: Trying coordinates URL: {url}")
         response = requests.get(url, timeout=10)
         data = response.json()
         
-        print(f"Trying coordinates: {lat},{lon} - Status: {data.get('status')}")
+        print(f"🔍 DEBUG: Coordinates {lat},{lon} response status: {data.get('status')}")
+        print(f"🔍 DEBUG: Coordinates response: {data}")
         
         if data.get('status') == 'ok' and 'data' in data:
             aqi_value = data['data'].get('aqi', 'N/A')
+            station_name = data['data'].get('city', {}).get('name', f"geo:{lat},{lon}")
+            
+            print(f"🔍 DEBUG: Coordinates station name: {station_name}")
+            print(f"🔍 DEBUG: Coordinates AQI: {aqi_value}")
+            
             # Handle invalid AQI values
             if aqi_value in ['-', None, ''] or aqi_value == 'N/A':
                 return None
@@ -167,6 +186,7 @@ def fetch_aqi_by_coordinates(lat: float, lon: float) -> Optional[Dict]:
             
             return {
                 'station': f"geo:{lat},{lon}",
+                'station_name': station_name,
                 'aqi': aqi_value,
                 'time': data['data'].get('time', {}).get('s', 'N/A')
             }
@@ -222,7 +242,7 @@ def get_aqi_for_specific_station(area_key: str, area_data: Dict) -> Dict:
                     'aqi': aqi_int,
                     'level': level,
                     'color': color,
-                    'source': f"Backup: {backup_station}"
+                    'source': f"Backup: {aqi_data.get('station_name', backup_station)}"
                 })
                 print(f"✅ BACKUP: {backup_station} -> AQI: {aqi_int}")
                 return area_info
@@ -245,7 +265,7 @@ def get_aqi_for_specific_station(area_key: str, area_data: Dict) -> Dict:
                     'aqi': aqi_int,
                     'level': level,
                     'color': color,
-                    'source': f"Coordinates: {lat}, {lon}"
+                    'source': f"Coordinates: {aqi_data.get('station_name', f'{lat}, {lon}')}"
                 })
                 print(f"✅ COORDINATES: {lat},{lon} -> AQI: {aqi_int}")
                 return area_info
