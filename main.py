@@ -17,37 +17,42 @@ OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
 JAKARTA_AQI_URL = f"https://api.waqi.info/feed/jakarta/?token={AQICN_API_KEY}"
 JAKARTA_WEATHER_URL = f"https://api.openweathermap.org/data/2.5/weather?q=Jakarta,ID&appid={OPENWEATHER_API_KEY}&units=metric"
 
-# Jakarta areas with specific, real monitoring stations
+# Updated Jakarta areas with verified monitoring stations and coordinates
 JAKARTA_AREAS = {
     'central': {
         'name': 'Central Jakarta',
         'emoji': '🏢',
-        'station': 'indonesia-gelora-jakarta-gbk',  # GBK Stadium - Central Jakarta
-        'backup_stations': ['indonesia/jakarta/us-consulate/central', 'indonesia/kemayoran']
+        'station': 'jakarta',  # Main Jakarta station
+        'coordinates': (-6.2088, 106.8456),  # Central Jakarta coordinates
+        'backup_stations': ['indonesia/jakarta/us-consulate', 'indonesia/kemayoran']
     },
     'west': {
-        'name': 'West Jakarta/Tangerang',
+        'name': 'West Jakarta',
         'emoji': '🏪',
-        'station': 'tangerang-id',  # Tangerang area - West of Jakarta
-        'backup_stations': ['indonesia/jakarta-barat', 'indonesia/jakarta/grogol']
+        'station': 'indonesia/jakarta/grogol',  # West Jakarta station
+        'coordinates': (-6.1744, 106.7636),  # West Jakarta coordinates
+        'backup_stations': ['tangerang', 'indonesia/jakarta-barat']
     },
     'south': {
         'name': 'South Jakarta',
         'emoji': '🏘️',
-        'station': 'indonesia/jakarta/us-consulate/south',  # US Consulate South
+        'station': 'indonesia/jakarta/us-consulate',  # US Consulate (South Jakarta)
+        'coordinates': (-6.2615, 106.8106),  # South Jakarta coordinates
         'backup_stations': ['indonesia/jakarta-selatan', 'indonesia/jakarta/kebayoran']
     },
     'east': {
-        'name': 'East Jakarta/Bekasi',
+        'name': 'East Jakarta',
         'emoji': '🏗️',
-        'station': 'bekasi-id',  # Bekasi area - East of Jakarta
-        'backup_stations': ['indonesia/jakarta-timur', 'indonesia/jakarta/cakung']
+        'station': 'indonesia/jakarta/cakung',  # East Jakarta station
+        'coordinates': (-6.1833, 106.9333),  # East Jakarta coordinates
+        'backup_stations': ['bekasi', 'indonesia/jakarta-timur']
     },
     'north': {
         'name': 'North Jakarta',
         'emoji': '🏭',
-        'station': 'indonesia/jakarta-utara',  # North Jakarta
-        'backup_stations': ['indonesia/jakarta/kelapa-gading', 'indonesia/jakarta/ancol']
+        'station': 'indonesia/jakarta/kelapa-gading',  # North Jakarta station
+        'coordinates': (-6.1500, 106.9000),  # North Jakarta coordinates
+        'backup_stations': ['indonesia/jakarta-utara', 'indonesia/jakarta/ancol']
     }
 }
 
@@ -110,8 +115,10 @@ def fetch_aqi_for_station(station: str) -> Optional[Dict]:
     """Fetch AQI data for a specific station"""
     try:
         url = f"https://api.waqi.info/feed/{station}/?token={AQICN_API_KEY}"
-        response = requests.get(url, timeout=5)
+        response = requests.get(url, timeout=10)
         data = response.json()
+        
+        print(f"Trying station: {station} - Status: {data.get('status')}")
         
         if data.get('status') == 'ok' and 'data' in data:
             aqi_value = data['data'].get('aqi', 'N/A')
@@ -122,6 +129,7 @@ def fetch_aqi_for_station(station: str) -> Optional[Dict]:
             # Try to convert to int to validate
             try:
                 int(aqi_value)
+                print(f"✅ Station {station} returned valid AQI: {aqi_value}")
             except (ValueError, TypeError):
                 return None
             
@@ -139,8 +147,10 @@ def fetch_aqi_by_coordinates(lat: float, lon: float) -> Optional[Dict]:
     """Fetch AQI data using coordinates as fallback"""
     try:
         url = f"https://api.waqi.info/feed/geo:{lat};{lon}/?token={AQICN_API_KEY}"
-        response = requests.get(url, timeout=5)
+        response = requests.get(url, timeout=10)
         data = response.json()
+        
+        print(f"Trying coordinates: {lat},{lon} - Status: {data.get('status')}")
         
         if data.get('status') == 'ok' and 'data' in data:
             aqi_value = data['data'].get('aqi', 'N/A')
@@ -151,6 +161,7 @@ def fetch_aqi_by_coordinates(lat: float, lon: float) -> Optional[Dict]:
             # Try to convert to int to validate
             try:
                 int(aqi_value)
+                print(f"✅ Coordinates {lat},{lon} returned valid AQI: {aqi_value}")
             except (ValueError, TypeError):
                 return None
             
@@ -220,7 +231,30 @@ def get_aqi_for_specific_station(area_key: str, area_data: Dict) -> Dict:
         else:
             print(f"❌ BACKUP: {backup_station} -> No data")
     
-    print(f"❌ {area_key.upper()} -> All stations failed")
+    # Try coordinates as last resort
+    if 'coordinates' in area_data:
+        lat, lon = area_data['coordinates']
+        print(f"🔄 Trying coordinates: {lat}, {lon}")
+        aqi_data = fetch_aqi_by_coordinates(lat, lon)
+        
+        if aqi_data and aqi_data['aqi'] not in ['N/A', '-', None, '']:
+            try:
+                aqi_int = int(aqi_data['aqi'])
+                level, color = get_aqi_level(aqi_int)
+                area_info.update({
+                    'aqi': aqi_int,
+                    'level': level,
+                    'color': color,
+                    'source': f"Coordinates: {lat}, {lon}"
+                })
+                print(f"✅ COORDINATES: {lat},{lon} -> AQI: {aqi_int}")
+                return area_info
+            except (ValueError, TypeError):
+                print(f"❌ COORDINATES: {lat},{lon} -> Invalid AQI: {aqi_data['aqi']}")
+        else:
+            print(f"❌ COORDINATES: {lat},{lon} -> No data")
+    
+    print(f"❌ {area_key.upper()} -> All methods failed")
     return area_info
 
 def fetch_jakarta_aqi_map() -> Dict:
@@ -324,15 +358,15 @@ def format_aqi_map_message(aqi_map: Dict) -> str:
 💡 **Tips:**
 • Choose areas with lower AQI for outdoor activities
 • Use masks in areas with AQI > 100
-• Data from specific monitoring stations
+• Data from multiple monitoring stations
 • Data refreshed on each request
 
-📍 **Monitoring Stations:**
-• Central: GBK Stadium area
-• West: Tangerang area
-• South: US Consulate South
-• East: Bekasi area
-• North: North Jakarta stations
+📍 **Monitoring Coverage:**
+• Central: Main Jakarta stations
+• West: Grogol area stations
+• South: US Consulate area
+• East: Cakung area stations
+• North: Kelapa Gading area
 
 📡 Data from AQICN (World Air Quality Index Project)
 """
@@ -551,46 +585,6 @@ def format_current_rain_message(weather_data):
     message += f"\n📡 Data from OpenWeather (Real-time)"
     
     return message
-    """Format rain forecast data into a readable message"""
-    if not forecast_data:
-        return "❌ Sorry, I couldn't fetch the rain forecast right now. Please try again later."
-    
-    message = f"""
-🌧️ **Jakarta Rain Forecast**
-📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}
-
-"""
-    
-    rain_periods = []
-    for item in forecast_data['list'][:8]:  # Next 24 hours (8 x 3-hour periods)
-        dt = datetime.fromtimestamp(item['dt'])
-        weather_desc = item['weather'][0]['description']
-        
-        rain_amount = 0
-        if 'rain' in item:
-            rain_amount = item['rain'].get('3h', 0)
-        
-        if 'rain' in weather_desc.lower() or rain_amount > 0:
-            rain_periods.append({
-                'time': dt.strftime('%H:%M'),
-                'date': dt.strftime('%m-%d'),
-                'description': weather_desc.title(),
-                'amount': rain_amount
-            })
-    
-    if rain_periods:
-        message += "🌧️ **Expected Rain Periods:**\n"
-        for period in rain_periods:
-            message += f"• {period['date']} {period['time']}: {period['description']}"
-            if period['amount'] > 0:
-                message += f" ({period['amount']} mm)"
-            message += "\n"
-    else:
-        message += "☀️ **Good News!** No rain expected in the next 24 hours.\n"
-    
-    message += "\n💡 Data from OpenWeather"
-    
-    return message
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message when the command /start is issued."""
@@ -631,46 +625,6 @@ async def weather(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(message, parse_mode='Markdown')
 
 async def current_rain(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Format rain forecast data into a readable message"""
-    if not forecast_data:
-        return "❌ Sorry, I couldn't fetch the rain forecast right now. Please try again later."
-    
-    message = f"""
-🌧️ **Jakarta Rain Forecast**
-📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}
-
-"""
-    
-    rain_periods = []
-    for item in forecast_data['list'][:8]:  # Next 24 hours (8 x 3-hour periods)
-        dt = datetime.fromtimestamp(item['dt'])
-        weather_desc = item['weather'][0]['description']
-        
-        rain_amount = 0
-        if 'rain' in item:
-            rain_amount = item['rain'].get('3h', 0)
-        
-        if 'rain' in weather_desc.lower() or rain_amount > 0:
-            rain_periods.append({
-                'time': dt.strftime('%H:%M'),
-                'date': dt.strftime('%m-%d'),
-                'description': weather_desc.title(),
-                'amount': rain_amount
-            })
-    
-    if rain_periods:
-        message += "🌧️ **Expected Rain Periods:**\n"
-        for period in rain_periods:
-            message += f"• {period['date']} {period['time']}: {period['description']}"
-            if period['amount'] > 0:
-                message += f" ({period['amount']} mm)"
-            message += "\n"
-    else:
-        message += "☀️ **Good News!** No rain expected in the next 24 hours.\n"
-    
-    message += "\n💡 Data from OpenWeather"
-    
-    return message
     """Send current rain status when /currentrain command is used."""
     await update.message.reply_text("🔄 Checking current rain status...")
     
@@ -737,6 +691,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • ☔ Current precipitation amount
 • 🌂 Instant rain alerts and recommendations
 • ☁️ Cloud coverage and humidity analysis
+
 **Rain Forecast:**
 • Next 24 hours rain prediction
 • Rain intensity and timing
